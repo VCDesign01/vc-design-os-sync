@@ -1,0 +1,584 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VC Design OS v13.0</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc; --card-bg: #ffffff; --text-main: #1e293b; --text-sub: #64748b;
+            --border-color: #e2e8f0; --input-bg: #f1f5f9; --main-color: #3b82f6;
+            --success-color: #10b981; --help-color: #8b5cf6; --contact-color: #f43f5e;
+            --nav-bg: rgba(255, 255, 255, 0.95);
+        }
+        [data-theme="dark"] {
+            --bg-color: #0f172a; --card-bg: #1e293b; --text-main: #f8fafc; --text-sub: #94a3b8;
+            --border-color: #334155; --input-bg: #0f172a; --main-color: #38bdf8;
+            --nav-bg: rgba(15, 23, 42, 0.95);
+        }
+        body { margin: 0; font-family: 'Inter', 'Hiragino Sans', sans-serif; background-color: var(--bg-color); color: var(--text-main); transition: background-color 0.3s, color 0.3s; }
+        .icon { width: 1.4em; height: 1.4em; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+        
+        #layer-auth { position: fixed; inset: 0; background: var(--bg-color); z-index: 10000; display: flex; align-items: center; justify-content: center; }
+        .auth-card { background: var(--card-bg); padding: 50px; border-radius: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.1); width: 100%; max-width: 450px; text-align: center; border: 1px solid var(--border-color); }
+        .navbar { background: var(--nav-bg); backdrop-filter: blur(10px); padding: 12px 30px; display: none; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.05); position: sticky; top:0; z-index:1000; border-bottom: 1px solid var(--border-color); }
+        .nav-brand { font-weight: 900; font-size: 1.3em; color: var(--main-color); cursor: pointer; }
+        .nav-menu { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+        .nav-link { cursor: pointer; color: var(--text-sub); font-size: 0.85em; font-weight: 700; display: flex; align-items: center; gap: 6px; transition: color 0.2s; }
+        .nav-link:hover { color: var(--text-main); }
+
+        .container { max-width: 1100px; margin: 40px auto; padding: 0 25px; display: none; }
+        .view { display: none; animation: slideUp 0.4s ease; }
+        .view.active { display: block; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+        .card { background: var(--card-bg); padding: 35px; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); margin-bottom: 30px; border: 1px solid var(--border-color); transition: background-color 0.3s, border-color 0.3s; }
+        input, textarea, select { width: 100%; padding: 16px; border: 2px solid var(--border-color); border-radius: 14px; background: var(--input-bg); color: var(--text-main); font-size: 16px; box-sizing: border-box; transition: background-color 0.3s, border-color 0.3s, color 0.3s; font-family: inherit; }
+        input:focus, textarea:focus, select:focus { border-color: var(--main-color); outline: none; }
+        
+        .btn-primary { background: var(--main-color); color: white; border: none; padding: 18px; border-radius: 15px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: opacity 0.2s, transform 0.1s; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-primary:active { transform: scale(0.98); }
+        .btn-sync { background: var(--bg-color); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 10px; cursor: pointer; color: var(--main-color); font-weight: bold; font-size: 0.85em; display: flex; align-items: center; gap: 5px; transition: 0.2s; }
+        .btn-sync:hover { background: var(--border-color); }
+
+        .selection-container { display: flex; flex-wrap: wrap; gap: 8px; padding: 15px; border: 2px solid var(--border-color); border-radius: 14px; max-height: 180px; overflow-y: auto; background: var(--bg-color); margin-bottom: 10px; }
+        .item-chip { font-size: 0.8em; background: var(--card-bg); padding: 8px 16px; border-radius: 20px; cursor: pointer; border: 1px solid var(--border-color); font-weight: 600; color: var(--text-sub); transition: 0.2s; }
+        .item-chip.suggested { border-color: var(--help-color); background: rgba(139, 92, 246, 0.12); color: var(--help-color); border-width: 2px; }
+        .item-chip.active { background: var(--main-color); color: white; border-color: var(--main-color); border-width: 2px; }
+
+        .history-item { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--border-color); }
+        .history-item:last-child { border-bottom: none; }
+        .badge-sent { background: var(--success-color); color: white; padding: 4px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 800; margin-right: 15px; }
+        .media-preview { font-size: 0.85em; color: var(--text-main); background: var(--bg-color); padding: 15px; border-radius: 12px; margin-top: 10px; white-space: pre-wrap; border: 1px dashed var(--border-color); width: 100%; box-sizing: border-box; }
+        
+        .contact-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 15px; border-radius: 15px; text-decoration: none; font-weight: 800; color: white; transition: opacity 0.2s; }
+        .contact-btn:hover { opacity: 0.9; }
+        
+        .input-group { display: flex; flex-direction: column; gap: 15px; }
+    </style>
+</head>
+<body>
+
+    <svg style="display: none;">
+        <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></symbol>
+        <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></symbol>
+        <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></symbol>
+        <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></symbol>
+        <symbol id="icon-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></symbol>
+        <symbol id="icon-sync" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></symbol>
+        <symbol id="icon-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></symbol>
+        <symbol id="icon-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></symbol>
+        <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></symbol>
+        <symbol id="icon-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></symbol>
+    </svg>
+
+    <div id="layer-auth">
+        <div class="auth-card" id="form-setup" style="display:none;">
+            <h1 style="color:var(--main-color); font-weight:900;">WELCOME OS v13</h1>
+            <div class="input-group">
+                <input type="text" id="setup-user" placeholder="ユーザー名">
+                <input type="text" id="setup-app" placeholder="アプリ名">
+                <input type="password" id="setup-key" placeholder="マスターキー">
+                <button class="btn-primary" onclick="handleSetup()">START SYSTEM</button>
+            </div>
+        </div>
+        <div class="auth-card" id="form-login" style="display:none;">
+            <h1 id="login-title" style="color:var(--main-color); font-weight:900;">OS</h1>
+            <div class="input-group">
+                <input type="password" id="login-pass" placeholder="マスターキー">
+                <button class="btn-primary" onclick="handleLogin()">ログイン</button>
+            </div>
+        </div>
+    </div>
+
+    <nav class="navbar" id="app-nav">
+        <div class="nav-brand" id="brand-logo" onclick="showView('home')">VC Design OS</div>
+        <div class="nav-menu">
+            <span class="nav-link" onclick="showView('home')"><svg class="icon" style="color:var(--main-color)"><use xlink:href="#icon-home"></use></svg>HOME</span>
+            <span class="nav-link" onclick="showView('editor')"><svg class="icon" style="color:var(--success-color)"><use xlink:href="#icon-edit"></use></svg>WRITE</span>
+            <span class="nav-link" onclick="showView('history')"><svg class="icon" style="color:var(--help-color)"><use xlink:href="#icon-folder"></use></svg>HISTORY</span>
+            <span class="nav-link" onclick="showView('settings')"><svg class="icon" style="color:var(--text-sub)"><use xlink:href="#icon-settings"></use></svg>SETTING</span>
+            <span class="nav-link" onclick="showView('help')"><svg class="icon" style="color:var(--main-color)"><use xlink:href="#icon-help"></use></svg>HELP</span>
+            <span class="nav-link" onclick="toggleTheme()"><svg class="icon" style="color:var(--text-main)"><use xlink:href="#icon-moon"></use></svg>THEME</span>
+            <span class="nav-link" onclick="handleLogout()" style="color:var(--contact-color);"><svg class="icon"><use xlink:href="#icon-logout"></use></svg>LOCK</span>
+        </div>
+    </nav>
+
+    <div class="container" id="main-container">
+        <div id="view-home" class="view active" style="text-align:center;">
+            <h1 id="welcome-msg" style="font-weight:900; margin-top:50px;">Work Smart.</h1>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:30px; margin-top:50px;">
+                <div class="card" onclick="showView('editor')" style="cursor:pointer; border-bottom:8px solid var(--success-color);"><h3>執筆を開始</h3></div>
+                <div class="card" onclick="showView('history')" style="cursor:pointer; border-bottom:8px solid var(--help-color);"><h3>送信履歴</h3></div>
+                <div class="card" onclick="showView('settings')" style="cursor:pointer; border-bottom:8px solid var(--text-sub);"><h3>システム設定</h3></div>
+            </div>
+        </div>
+
+        <div id="view-editor" class="view">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h2 style="margin:0;">記事エディタ</h2>
+                    <button class="btn-sync" style="background:var(--help-color); color:white; border:none;" onclick="saveToHistory(true)"><svg class="icon"><use xlink:href="#icon-save"></use></svg> 資産として保存</button>
+                </div>
+                <div class="input-group">
+                    <select id="site-select" onchange="refreshTerms()"></select>
+                    <select id="post-status">
+                        <option value="draft">下書き</option>
+                        <option value="publish">公開</option>
+                    </select>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <b>カテゴリー</b>
+                        <button class="btn-sync" onclick="refreshTerms()"><svg class="icon" style="width:1em;height:1em;"><use xlink:href="#icon-sync"></use></svg> 更新</button>
+                    </div>
+                    <div id="cat-list" class="selection-container"></div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <b>タグ</b>
+                        <button class="btn-sync" onclick="refreshTerms()"><svg class="icon" style="width:1em;height:1em;"><use xlink:href="#icon-sync"></use></svg> 更新</button>
+                    </div>
+                    <small style="color:var(--text-sub);">薄い紫 = 候補 / 青塗り = 選択済み（送信対象）</small>
+                    <label style="display:flex; align-items:center; gap:8px; color:var(--text-sub); font-size:0.9em;">
+                        <input type="checkbox" id="auto-select-terms" onchange="toggleAutoSelectTerms(this.checked)">
+                        候補タグ・カテゴリーを自動選択する
+                    </label>
+                    <div id="tag-list" class="selection-container"></div>
+                    <input type="text" id="post-title" placeholder="タイトル" oninput="analyzeTextForTerms()">
+                    <textarea id="post-content" placeholder="本文" style="height: 200px;" oninput="analyzeTextForTerms()"></textarea>
+                    <button class="btn-primary" onclick="handlePublish()">WordPress送信 ＆ 媒体成形</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-history" class="view">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h2>送信・保存履歴</h2>
+                    <button onclick="exportCSV()" class="btn-sync"><svg class="icon" style="width:1em;height:1em;"><use xlink:href="#icon-download"></use></svg> CSV出力</button>
+                </div>
+                <div id="history-list"></div>
+            </div>
+        </div>
+
+        <div id="view-settings" class="view">
+            <div class="card">
+                <h2>アプリ設定</h2>
+                <div class="input-group">
+                    <input type="text" id="set-user-name" placeholder="ユーザー名" oninput="updateProfile()">
+                    <input type="text" id="set-app-name" placeholder="アプリ名" oninput="updateProfile()">
+                </div>
+            </div>
+            <div class="card">
+                <h2>WordPress 連携 / 媒体設定</h2>
+                <div id="site-list-display"></div>
+                <div id="media-list-display"></div>
+            </div>
+            <div class="card" style="border: 2px dashed var(--main-color);">
+                <h2>バックアップと移行</h2>
+                <div style="background: var(--input-bg); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border-color);">
+                    <h3 style="margin-top:0; color:var(--text-main); font-size:1.1em;">旧データがある場合の復旧</h3>
+                    <p style="margin:0 0 15px 0; font-size:0.9em; font-weight:bold; color:var(--text-sub); line-height:1.5;">別バージョンのデータを検出して移行します。必要な場合のみ実行してください。</p>
+                    <button class="btn-primary" style="width:100%; background:var(--contact-color);" onclick="forceMigrate()">旧データを検索して移行</button>
+                </div>
+                <h3 style="margin-top:0; font-size:1em;">ファイルでバックアップ</h3>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn-primary" style="flex:1;" onclick="exportFullBackup()">バックアップ保存</button>
+                    <button class="btn-primary" style="flex:1; background:var(--text-sub);" onclick="document.getElementById('import-file').click()">バックアップ読込</button>
+                </div>
+                <input type="file" id="import-file" style="display:none;" onchange="importFullBackup(event)">
+            </div>
+            <div class="card">
+                <h3>新規サイト接続</h3>
+                <div class="input-group">
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="magic-url" placeholder="WordPress URL（例: https://example.com）" style="flex:1;">
+                        <button class="btn-primary" style="padding: 0 25px;" onclick="magicFetch()">検出</button>
+                    </div>
+                    <div id="magic-fields" style="display:none; flex-direction:column; gap:15px; margin-top:5px;">
+                        <input type="text" id="new-site-name" placeholder="サイト名">
+                        <input type="text" id="new-site-user" placeholder="ユーザー名">
+                        <input type="password" id="new-site-pass" placeholder="アプリケーションパスワード">
+                        <button class="btn-primary" style="background:var(--success-color);" onclick="addSite()">追加</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>媒体テンプレート追加</h3>
+                <div class="input-group">
+                    <input type="text" id="new-media-name" placeholder="媒体名（例: X用 / Instagram用 / LINE用）">
+                    <textarea id="new-media-letter" placeholder="末尾に付与する署名やハッシュタグ" style="height:100px;"></textarea>
+                    <button class="btn-primary" style="background:var(--help-color);" onclick="addMedia()">追加</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-help" class="view">
+            <div class="card" style="margin-bottom: 25px;">
+                <h2>使い方</h2>
+                <ol style="line-height: 2; padding-left: 20px; color: var(--text-main);">
+                    <li><strong>SETTING</strong> で WordPress サイトと媒体テンプレートを登録します。</li>
+                    <li><strong>WRITE</strong> でタイトルと本文を入力します。</li>
+                    <li>カテゴリーとタグは <strong>更新</strong> ボタンで同期できます。</li>
+                    <li><strong>WordPress送信 ＆ 媒体成形</strong> で WP送信と媒体テキスト生成を行います。</li>
+                    <li><strong>HISTORY</strong> では送信済み記事の再編集と再利用ができます。</li>
+                </ol>
+            </div>
+            <div class="card">
+                <h2>リンク</h2>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px; margin-top:20px;">
+                    <a href="https://lin.ee/ccPWmGh" target="_blank" class="contact-btn" style="background:#06c755;"><img src="https://scdn.line-apps.com/n/line_add_friends/btn/ja.png" alt="LINE" height="30"></a>
+                    <a href="https://www.notion.so/VC-Design-Web-Graphic-Portfolio-30de651acb4780f483cae280086e2386" target="_blank" class="contact-btn" style="background:#000;">Portfolio (Notion)</a>
+                    <a href="https://www.instagram.com/yukko_designer01_climber" target="_blank" class="contact-btn" style="background:#E1306C;">Instagram</a>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-publish" class="view">
+            <div class="card">
+                <h2>媒体向けテキスト</h2>
+                <div id="publish-output"></div>
+                <button class="btn-primary" style="background:var(--text-sub);" onclick="showView('editor')">エディタへ戻る</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const KEY = 'vcd_v13_';
+        let db = { user: null, sites: [], media: [], history: [] };
+        let autoSelectTerms = localStorage.getItem(KEY+'auto_select_terms') === '1';
+
+        window.onload = () => {
+            migrateData();
+            loadDB();
+            if(localStorage.getItem(KEY+'theme')==='dark') document.body.dataset.theme = 'dark';
+            
+            if(!db.user) {
+                document.getElementById('form-setup').style.display = 'block';
+            } else {
+                if(sessionStorage.getItem(KEY+'logged_in')) {
+                    startApp();
+                } else {
+                    document.getElementById('form-login').style.display = 'block'; 
+                    document.getElementById('login-title').innerText = db.user.appName; 
+                }
+            }
+        };
+
+        function loadDB() {
+            db.user = JSON.parse(localStorage.getItem(KEY+'user')) || null;
+            db.sites = JSON.parse(localStorage.getItem(KEY+'sites')) || [];
+            db.media = JSON.parse(localStorage.getItem(KEY+'media')) || [];
+            db.history = JSON.parse(localStorage.getItem(KEY+'history')) || [];
+        }
+
+        function migrateData() {
+            try {
+                const hasUser = !!localStorage.getItem(KEY+'user');
+                const sitesRaw = localStorage.getItem(KEY+'sites');
+                const mediaRaw = localStorage.getItem(KEY+'media');
+                let hasRealData = false;
+                if(sitesRaw && sitesRaw.length > 5) hasRealData = true; 
+                if(mediaRaw && mediaRaw.length > 5) hasRealData = true;
+
+                if(!hasUser || !hasRealData) {
+                    let bestPrefix = null;
+                    let bestScore = -1;
+
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const localKey = localStorage.key(i);
+                        if (localKey && localKey.endsWith('user') && localKey !== KEY+'user') {
+                            const prefix = localKey.substring(0, localKey.length - 4);
+                            let score = 0;
+                            const s = localStorage.getItem(prefix+'sites'); if(s) score += s.length;
+                            const m = localStorage.getItem(prefix+'media'); if(m) score += m.length;
+                            const h = localStorage.getItem(prefix+'history'); if(h) score += h.length;
+                            
+                            if (score > bestScore && score > 10) { 
+                                bestScore = score;
+                                bestPrefix = prefix;
+                            }
+                        }
+                    }
+                    
+                    if(bestPrefix !== null) {
+                        localStorage.setItem(KEY+'user', localStorage.getItem(bestPrefix+'user'));
+                        if(localStorage.getItem(bestPrefix+'sites')) localStorage.setItem(KEY+'sites', localStorage.getItem(bestPrefix+'sites'));
+                        if(localStorage.getItem(bestPrefix+'media')) localStorage.setItem(KEY+'media', localStorage.getItem(bestPrefix+'media'));
+                        if(localStorage.getItem(bestPrefix+'history')) localStorage.setItem(KEY+'history', localStorage.getItem(bestPrefix+'history'));
+                    }
+                }
+            } catch(e) {}
+        }
+
+        function forceMigrate() {
+            let options = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const localKey = localStorage.key(i);
+                if (localKey && localKey.endsWith('user') && localKey !== KEY+'user') {
+                    const prefix = localKey.substring(0, localKey.length - 4);
+                    let size = 0;
+                    const s = localStorage.getItem(prefix+'sites'); if(s) size += s.length;
+                    const m = localStorage.getItem(prefix+'media'); if(m) size += m.length;
+                    const h = localStorage.getItem(prefix+'history'); if(h) size += h.length;
+                    
+                    if (size > 10) {
+                        options.push({ prefix: prefix, size: size, userRaw: localStorage.getItem(localKey) });
+                    }
+                }
+            }
+            
+            if (options.length === 0) {
+                alert('移行できるバックアップが見つかりませんでした。');
+                return;
+            }
+            
+            options.sort((a,b) => b.size - a.size);
+            const best = options[0];
+            
+            let uName = "不明";
+            try { const p = JSON.parse(best.userRaw); if(p && p.appName) uName = p.appName; } catch(e) {}
+
+            if(confirm(`バックアップを移行しますか？\nアプリ: ${uName}\nサイズ目安: ${Math.max(1, Math.round(best.size/102.4)/10)}KB`)) {
+                localStorage.setItem(KEY+'user', best.userRaw);
+                if(localStorage.getItem(best.prefix+'sites')) localStorage.setItem(KEY+'sites', localStorage.getItem(best.prefix+'sites'));
+                if(localStorage.getItem(best.prefix+'media')) localStorage.setItem(KEY+'media', localStorage.getItem(best.prefix+'media'));
+                if(localStorage.getItem(best.prefix+'history')) localStorage.setItem(KEY+'history', localStorage.getItem(best.prefix+'history'));
+                alert('移行が完了しました。ページを再読み込みします。');
+                location.reload();
+            }
+        }
+
+        function handleLogin() {
+            if(document.getElementById('login-pass').value === db.user.masterKey) {
+                sessionStorage.setItem(KEY+'logged_in', 'true');
+                startApp();
+            } else {
+                alert('パスワードが違います。');
+            }
+        }
+
+        function startApp() {
+            document.getElementById('layer-auth').style.display = 'none';
+            document.getElementById('app-nav').style.display = 'flex';
+            document.getElementById('main-container').style.display = 'block';
+            renderAll();
+            const toggle = document.getElementById('auto-select-terms');
+            if(toggle) toggle.checked = autoSelectTerms;
+        }
+
+        function handleLogout() {
+            sessionStorage.removeItem(KEY+'logged_in');
+            location.reload();
+        }
+
+        function toggleTheme() {
+            const isDark = document.body.dataset.theme === 'dark';
+            if(isDark) { document.body.removeAttribute('data-theme'); localStorage.setItem(KEY+'theme','light'); }
+            else { document.body.dataset.theme = 'dark'; localStorage.setItem(KEY+'theme','dark'); }
+        }
+
+        function renderAll() {
+            document.getElementById('brand-logo').innerText = db.user.appName;
+            document.getElementById('welcome-msg').innerText = `Hello, ${db.user.name}.`;
+            document.getElementById('set-user-name').value = db.user.name;
+            document.getElementById('set-app-name').value = db.user.appName;
+
+            document.getElementById('site-list-display').innerHTML = db.sites.map((s,i) => `
+                <div class="history-item">
+                    <span><strong>${s.name}</strong><br><small style="opacity:0.6;">User: ${s.user} | URL: ${s.url}</small></span>
+                    <button onclick="delSite(${i})" style="color:var(--contact-color); border:none; background:none; cursor:pointer; font-weight:bold;">削除</button>
+                </div>`).join('');
+
+            document.getElementById('media-list-display').innerHTML = db.media.map((m,i) => `
+                <div class="history-item" style="display:flex; flex-direction:column; align-items:flex-start; padding: 20px 0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-bottom: 10px;">
+                        <input type="text" id="edit-media-name-${i}" value="${m.name}" style="font-weight:bold; width: 60%; padding: 8px 12px; font-size: 15px;">
+                        <button onclick="delMedia(${i})" style="color:var(--contact-color); border:none; background:none; cursor:pointer; font-weight:bold;">削除</button>
+                    </div>
+                    <textarea id="edit-media-letter-${i}" class="media-preview" style="height: 100px;">${m.letter || ''}</textarea>
+                    <div style="width:100%; display:flex; justify-content:flex-end;">
+                        <button class="btn-sync" style="background:var(--success-color); color:white; border:none; margin-top: 10px; padding: 8px 20px;" onclick="updateMedia(${i})">更新して保存</button>
+                    </div>
+                </div>`).join('');
+
+            document.getElementById('site-select').innerHTML = db.sites.map((s,i) => `<option value="${i}">${s.name}</option>`).join('');
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const list = document.getElementById('history-list');
+            list.innerHTML = db.history.map((h, i) => `
+                <div class="history-item">
+                    <div class="list-content" onclick="restore(${i})" style="cursor:pointer; flex: 1;">
+                        <strong style="font-size:1.1em; color:var(--text-main);">${h.title}</strong><br>
+                        <small style="color:var(--text-sub);">${h.date}</small>
+                    </div>
+                    <div style="display:flex; align-items:center;">
+                        ${h.link ? `<span class="badge-sent">✅ WP済</span> <a href="${h.link}" target="_blank" style="text-decoration:none; font-size:0.85em; font-weight:bold; color:var(--main-color); margin-right:15px;">WPで確認</a>` : ''}
+                        <button class="btn-sync" style="margin-right:10px;" onclick="regenerateMediaFromHistory(${i})">媒体コピーを再生成</button>
+                        <button style="border:none; background:none; cursor:pointer; font-size:1.4em; color:var(--contact-color);" onclick="delHistory(${i})">×</button>
+                    </div>
+                </div>`).join('');
+        }
+
+        function updateMedia(i) {
+            db.media[i].name = document.getElementById(`edit-media-name-${i}`).value;
+            db.media[i].letter = document.getElementById(`edit-media-letter-${i}`).value;
+            saveDB();
+            alert('保存しました。');
+            renderAll();
+        }
+
+        // --- 共通ユーティリティ ---
+        function getAuth(u, p) { 
+            // 日本語を含む認証情報でも安全に扱えるよう UTF-8 で Basic 認証ヘッダーを作る
+            const str = u + ':' + p;
+            const bytes = new TextEncoder().encode(str);
+            const binString = String.fromCodePoint(...bytes);
+            return 'Basic ' + btoa(binString);
+        }
+        function saveDB() { Object.keys(db).forEach(k => localStorage.setItem(KEY+k, JSON.stringify(db[k]))); }
+        function showView(id) { document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); document.getElementById(`view-${id}`).classList.add('active'); window.scrollTo(0,0); }
+        function restore(i) { const h = db.history[i]; document.getElementById('post-title').value = h.title; document.getElementById('post-content').value = h.content; showView('editor'); analyzeTextForTerms(); }
+        function delHistory(i) { if(confirm('消去しますか？')) { db.history.splice(i,1); saveDB(); renderHistory(); } }
+        function delSite(i) { if(confirm('消去しますか？')) { db.sites.splice(i,1); saveDB(); renderAll(); } }
+        function delMedia(i) { if(confirm('消去しますか？')) { db.media.splice(i,1); saveDB(); renderAll(); } }
+        function handleSetup() { const u=document.getElementById('setup-user').value, a=document.getElementById('setup-app').value, k=document.getElementById('setup-key').value; if(u&&a&&k){db.user={name:u,appName:a,masterKey:k};saveDB();sessionStorage.setItem(KEY+'logged_in', 'true');location.reload();} }
+        function updateProfile() { db.user.name=document.getElementById('set-user-name').value; db.user.appName=document.getElementById('set-app-name').value; saveDB(); document.getElementById('brand-logo').innerText=db.user.appName; }
+        function addMedia() { const n=document.getElementById('new-media-name').value, l=document.getElementById('new-media-letter').value; if(n){db.media.push({name:n,letter:l});saveDB();renderAll(); document.getElementById('new-media-name').value=''; document.getElementById('new-media-letter').value='';} }
+        async function magicFetch() { let b=document.getElementById('magic-url').value.replace(/\/$/, ""); try { const res=await fetch(`${b}/wp-json/`); const d=await res.json(); document.getElementById('new-site-name').value=d.name; document.getElementById('magic-fields').style.display='flex'; } catch(e) { document.getElementById('magic-fields').style.display='flex'; } }
+        function addSite() { const n=document.getElementById('new-site-name').value, u=`${document.getElementById('magic-url').value.replace(/\/$/, "")}/wp-json/wp/v2`, us=document.getElementById('new-site-user').value.trim(), p=document.getElementById('new-site-pass').value.replace(/\s+/g, ''); if(n&&us&&p){db.sites.push({name:n,url:u,user:us,pass:p});saveDB();location.reload();} }
+        async function refreshTerms() { const s=db.sites[document.getElementById('site-select').value]; if(s) fetchData(s,'categories','cat-list'), fetchData(s,'tags','tag-list'); }
+        async function fetchData(s,t,e) { const c=document.getElementById(e); c.innerText='Sync...'; try { const res=await fetch(`${s.url}/${t}?per_page=100`, { headers: { 'Authorization': getAuth(s.user, s.pass) } }); const data=await res.json(); c.innerHTML=''; data.forEach(item => { const el=document.createElement('div'); el.className='item-chip'; el.dataset.id=item.id; el.innerText=item.name; el.onclick=()=>el.classList.toggle('active'); c.appendChild(el); }); analyzeTextForTerms(); } catch(err) { c.innerText='Error'; } }
+        function saveToHistory(m, l=null) { const t=document.getElementById('post-title').value||"無題", c=document.getElementById('post-content').value; db.history.unshift({title:t,content:c,date:new Date().toLocaleString(),link:l}); saveDB(); renderHistory(); if(m) alert('Saved!'); }
+        function toggleAutoSelectTerms(enabled) {
+            autoSelectTerms = !!enabled;
+            localStorage.setItem(KEY+'auto_select_terms', autoSelectTerms ? '1' : '0');
+            analyzeTextForTerms();
+        }
+        function normalizeTerm(v) {
+            return (v || '').toString().trim().toLowerCase();
+        }
+        function getChipNameSet(containerId) {
+            return new Set(
+                Array.from(document.getElementById(containerId).querySelectorAll('.item-chip'))
+                    .map(el => normalizeTerm(el.innerText))
+                    .filter(Boolean)
+            );
+        }
+        function extractHashtags(text) {
+            const found = new Set();
+            const regex = /[#＃]([^\s#＃,，。、.!！?？:：;；()\[\]{}"'`]+)/g;
+            let m;
+            while ((m = regex.exec(text)) !== null) {
+                const v = normalizeTerm(m[1]);
+                if (v) found.add(v);
+            }
+            return Array.from(found);
+        }
+        function extractCategoryHints(text) {
+            const found = new Set();
+            const lines = text.split(/\r?\n/);
+            lines.forEach(line => {
+                const m = line.match(/(?:カテゴリ|category)\s*[:：]\s*(.+)$/i);
+                if (!m) return;
+                m[1].split(/[、,，\/]/).forEach(part => {
+                    const v = normalizeTerm(part);
+                    if (v) found.add(v);
+                });
+            });
+            return Array.from(found);
+        }
+        function detectUnregisteredTerms(title, content) {
+            const text = `${title}\n${content}`;
+            const tagSet = getChipNameSet('tag-list');
+            const catSet = getChipNameSet('cat-list');
+
+            const unknownTags = tagSet.size === 0
+                ? []
+                : extractHashtags(text).filter(term => !tagSet.has(term));
+            const unknownCats = catSet.size === 0
+                ? []
+                : extractCategoryHints(text).filter(term => !catSet.has(term));
+
+            return { unknownTags, unknownCats };
+        }
+        function confirmUnregisteredTerms(title, content) {
+            const { unknownTags, unknownCats } = detectUnregisteredTerms(title, content);
+            if (unknownTags.length === 0 && unknownCats.length === 0) return true;
+
+            const lines = ['未登録の可能性がある語を検出しました。'];
+            if (unknownCats.length > 0) lines.push(`カテゴリ候補: ${unknownCats.join(', ')}`);
+            if (unknownTags.length > 0) lines.push(`タグ候補: ${unknownTags.map(v => '#' + v).join(', ')}`);
+            lines.push('');
+            lines.push('このまま送信しますか？');
+            lines.push('※必ず登録する必要はありません。');
+            return confirm(lines.join('\n'));
+        }
+        function stripMetaBlockForPublish(rawContent) {
+            const text = (rawContent || '').toString();
+            const marker = /(?:^|\r?\n)\s*【\s*(?:カテゴリー|タグ(?:（ハッシュタグ）|\(ハッシュタグ\))?)\s*】/m;
+            const m = marker.exec(text);
+            if (!m) return { mainContent: text, stripped: false };
+            const main = text.slice(0, m.index).replace(/\s+$/g, '');
+            return { mainContent: main, stripped: true };
+        }
+        function renderPublishOutput(t, c) {
+            document.getElementById('publish-output').innerHTML = db.media.slice(0, 10).map((m, i) => `
+                <div class="card" style="padding: 20px;">
+                    <h3 style="margin-top:0; color:var(--text-main);">${m.name}</h3>
+                    <textarea id="p-${i}" style="height:250px; font-size:14px; margin-bottom:15px; border-radius:10px; line-height:1.6;">${t}\n\n${c}\n\n${m.letter}</textarea>
+                    <button class="btn-primary" style="width:100%; background:var(--main-color);" onclick="navigator.clipboard.writeText(document.getElementById('p-${i}').value); this.innerText='COPIED!'; setTimeout(()=>this.innerText='一括コピー', 2000);">一括コピー</button>
+                </div>`).join('');
+            showView('publish');
+        }
+        function regenerateMediaFromHistory(i) {
+            const h = db.history[i];
+            if(!h) return;
+            renderPublishOutput(h.title || '', h.content || '');
+        }
+        async function handlePublish() {
+            const s=db.sites[document.getElementById('site-select').value], t=document.getElementById('post-title').value, rawContent=document.getElementById('post-content').value;
+            if(!t||!rawContent) return alert('No text!');
+            if(!confirmUnregisteredTerms(t, rawContent)) return;
+            const prepared = stripMetaBlockForPublish(rawContent);
+            const c = prepared.mainContent;
+            if(!c) return alert('本文が空です。送信本文を入力してください。');
+            let link=null;
+            if(s) { try { 
+                const catIds = Array.from(document.getElementById('cat-list').querySelectorAll('.item-chip.active')).map(el => parseInt(el.dataset.id));
+                const tagIds = Array.from(document.getElementById('tag-list').querySelectorAll('.item-chip.active')).map(el => parseInt(el.dataset.id));
+                const payload = { title: t, content: c, status: document.getElementById('post-status').value };
+                if(catIds.length > 0) payload.categories = catIds;
+                if(tagIds.length > 0) payload.tags = tagIds;
+                
+                const res=await fetch(`${s.url}/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': getAuth(s.user, s.pass) }, body: JSON.stringify(payload) }); 
+                if(res.ok) { const r=await res.json(); link=`${s.url.split('/wp-json')[0]}/wp-admin/post.php?post=${r.id}&action=edit`; alert('WPへの送信が成功しました。'); } else { const err=await res.json(); alert('エラー: WPへの送信に失敗しました\n' + JSON.stringify(err)); } 
+            } catch(e) { alert('送信エラー: ' + e.message); } }
+            saveToHistory(false, link);
+            renderPublishOutput(t, c);
+        }
+        function exportFullBackup() { const d=JSON.stringify(db,null,2); const b=new Blob([d],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Backup.json`; a.click(); }
+        function importFullBackup(e) { const r=new FileReader(); r.onload=(ev)=>{ try{ db=JSON.parse(ev.target.result); saveDB(); location.reload(); }catch(err){alert('Invalid file');} }; r.readAsText(e.target.files[0]); }
+        function exportCSV() { let csv="\uFEFFTitle,Date,Link\n"; db.history.forEach(h=>csv+=`"${h.title}","${h.date}","${h.link||''}"\n`); const b=new Blob([csv],{type:"text/csv"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download="History.csv"; a.click(); }
+        // --- テキスト解析（タグ・カテゴリー候補の可視化） ---
+        function analyzeTextForTerms() {
+            const title = document.getElementById('post-title').value.toLowerCase();
+            const content = document.getElementById('post-content').value.toLowerCase();
+            const fullText = title + " " + content;
+            
+            document.querySelectorAll('.item-chip').forEach(chip => {
+                const term = chip.innerText.toLowerCase();
+                if (term.length > 1 && fullText.includes(term)) {
+                    chip.classList.add('suggested');
+                    if (autoSelectTerms) chip.classList.add('active');
+                    chip.setAttribute('title', '本文またはタイトルに含まれています');
+                } else {
+                    chip.classList.remove('suggested');
+                    if (autoSelectTerms) chip.classList.remove('active');
+                    chip.removeAttribute('title');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
