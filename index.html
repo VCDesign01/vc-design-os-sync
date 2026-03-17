@@ -119,6 +119,12 @@
     <div class="container" id="main-container">
         <div id="view-home" class="view active" style="text-align:center;">
             <h1 id="welcome-msg" style="font-weight:900; margin-top:50px;">Work Smart.</h1>
+            <div class="info-row" style="justify-content:center; margin-top:18px;">
+                <span class="info-chip">合計: <span id="dash-total">0</span></span>
+                <span class="info-chip">今月: <span id="dash-month">0</span></span>
+                <span class="info-chip">未送信: <span id="dash-unsent">0</span></span>
+                <span class="info-chip">WP送信済: <span id="dash-wp-sent">0</span></span>
+            </div>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:30px; margin-top:50px;">
                 <div class="card" onclick="showView('editor')" style="cursor:pointer; border-bottom:8px solid var(--success-color);"><h3>執筆を開始</h3></div>
                 <div class="card" onclick="showView('history')" style="cursor:pointer; border-bottom:8px solid var(--help-color);"><h3>送信履歴</h3></div>
@@ -251,6 +257,9 @@
             </div>
             <div class="card">
                 <h3>媒体テンプレート追加</h3>
+                <div class="info-row" style="margin:10px 0 0 0;">
+                    <span class="info-chip">媒体テンプレ: <span id="media-count">0</span>/10</span>
+                </div>
                 <div class="input-group">
                     <input type="text" id="new-media-name" placeholder="媒体名（例: X用 / Instagram用 / LINE用）">
                     <textarea id="new-media-letter" placeholder="末尾に付与する署名やハッシュタグ" style="height:100px;"></textarea>
@@ -262,6 +271,7 @@
         <div id="view-help" class="view">
             <div class="card" style="margin-bottom: 25px;">
                 <h2>使い方</h2>
+                <h3 style="margin-top:0;">初回の手順</h3>
                 <ol style="line-height: 2; padding-left: 20px; color: var(--text-main);">
                     <li><strong>SETTING</strong> で WordPress サイトと媒体テンプレートを登録します。</li>
                     <li><strong>WRITE</strong> でタイトルと本文を入力します。</li>
@@ -269,6 +279,23 @@
                     <li><strong>WordPress送信 ＆ 媒体成形</strong> で WP送信と媒体テキスト生成を行います。</li>
                     <li><strong>HISTORY</strong> では送信済み記事の再編集と再利用ができます。</li>
                 </ol>
+                <h3>バックアップ／インポート</h3>
+                <ol style="line-height: 2; padding-left: 20px; color: var(--text-main);">
+                    <li><strong>バックアップ保存</strong> で JSON を保存します。</li>
+                    <li>別端末で使う場合は <strong>バックアップ読込</strong> で復元します。</li>
+                    <li>自動バックアップは最新分を <strong>最新自動バックアップを保存</strong> で出力できます。</li>
+                </ol>
+                <h3>アプリとして使う方法（簡易）</h3>
+                <ol style="line-height: 2; padding-left: 20px; color: var(--text-main);">
+                    <li>ブラウザで開いたら、右上メニューから「ホーム画面に追加」します。</li>
+                    <li>アイコンから起動すればアプリ風に使えます。</li>
+                </ol>
+                <h3>FAQ</h3>
+                <ul style="line-height: 2; padding-left: 20px; color: var(--text-main);">
+                    <li>投稿が反映されない → WordPressのアプリパスワードを再発行して再登録してください。</li>
+                    <li>履歴が空 → <strong>WP下書き取り込み</strong> またはバックアップ復元を実行してください。</li>
+                    <li>スマホでも使える？ → 使えます。ホーム画面追加でアプリ風に動きます。</li>
+                </ul>
             </div>
             <div class="card">
                 <h2>リンク</h2>
@@ -507,6 +534,7 @@
             document.getElementById('site-select').innerHTML = db.sites.map((s,i) => `<option value="${i}">${s.name}</option>`).join('');
             updateActiveSiteLabel();
             updateBackupInfo();
+            updateMediaLimitInfo();
             renderHistory();
         }
 
@@ -953,6 +981,20 @@
             if(monthEl) monthEl.innerText = monthCount;
             if(unsentEl) unsentEl.innerText = unsent;
             if(wpSentEl) wpSentEl.innerText = wpSent;
+            const dashTotal = document.getElementById('dash-total');
+            const dashMonth = document.getElementById('dash-month');
+            const dashUnsent = document.getElementById('dash-unsent');
+            const dashWp = document.getElementById('dash-wp-sent');
+            if(dashTotal) dashTotal.innerText = total;
+            if(dashMonth) dashMonth.innerText = monthCount;
+            if(dashUnsent) dashUnsent.innerText = unsent;
+            if(dashWp) dashWp.innerText = wpSent;
+        }
+        function updateMediaLimitInfo() {
+            const el = document.getElementById('media-count');
+            if(!el) return;
+            const count = Array.isArray(db.media) ? db.media.length : 0;
+            el.innerText = count;
         }
         function exportFullBackup() { const d=JSON.stringify(db,null,2); const b=new Blob([d],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Backup.json`; a.click(); localStorage.setItem(KEY+'last_backup_at', String(Date.now())); updateBackupInfo(); }
         function importFullBackup(e) { const r=new FileReader(); r.onload=(ev)=>{ try{ db=JSON.parse(ev.target.result); saveDB(); location.reload(); }catch(err){alert('Invalid file');} }; r.readAsText(e.target.files[0]); }
