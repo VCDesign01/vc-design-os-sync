@@ -180,6 +180,22 @@
                 <h2>WordPress 連携 / 媒体設定</h2>
                 <div id="site-list-display"></div>
                 <div id="media-list-display"></div>
+                <div style="margin-top:20px; background: var(--input-bg); padding:20px; border-radius:15px; border:1px solid var(--border-color);">
+                    <h3 style="margin-top:0; color:var(--text-main); font-size:1.1em;">WP下書きを履歴へ一括取り込み</h3>
+                    <p style="margin:0 0 15px 0; font-size:0.9em; font-weight:bold; color:var(--text-sub); line-height:1.5;">
+                        登録済みサイトの「blog」カテゴリにある記事を履歴へ取り込みます。<br>
+                        既にある履歴は重複しないようにスキップします。
+                    </p>
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px;">
+                        <label style="font-size:0.9em; color:var(--text-sub); font-weight:bold;">対象</label>
+                        <select id="wp-import-status">
+                            <option value="draft">下書きのみ</option>
+                            <option value="publish">公開済みのみ</option>
+                            <option value="draft,publish">下書き＋公開</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary" style="width:100%; background:var(--success-color);" onclick="importWpDraftsToHistory()">WP下書きを取り込む</button>
+                </div>
             </div>
             <div class="card" style="border: 2px dashed var(--main-color);">
                 <h2>バックアップと移行</h2>
@@ -679,6 +695,98 @@
             }));
             saveDB();
             renderHistory();
+        }
+        function wpHtmlToText(html) {
+            try {
+                const doc = new DOMParser().parseFromString(html || '', 'text/html');
+                return (doc.body && doc.body.textContent) ? doc.body.textContent.trim() : '';
+            } catch (e) {
+                return (html || '').replace(/<[^>]+>/g, '').trim();
+            }
+        }
+        function normalizeFingerprint(t,c,d,l) {
+            return `${(t||'').trim()}|${(c||'').trim()}|${(d||'').trim()}|${(l||'').trim()}`.toLowerCase();
+        }
+        async function importWpDraftsToHistory() {
+            const s = db.sites[document.getElementById('site-select').value];
+            if(!s) return alert('サイトが選択されていません。');
+            const statusValue = (document.getElementById('wp-import-status')?.value || 'draft').trim();
+            const statusLabel = statusValue === 'publish' ? '公開済み' : (statusValue === 'draft,publish' ? '下書き＋公開' : '下書き');
+            if(!confirm(`WordPressの${statusLabel}を履歴へ取り込みます。よろしいですか？`)) return;
+
+            // blogカテゴリIDを取得
+            let blogCatId = null;
+            try {
+                const catRes = await fetch(`${s.url}/categories?per_page=100&search=blog`, {
+                    headers: { 'Authorization': getAuth(s.user, s.pass) }
+                });
+                const catData = await catRes.json();
+                if(Array.isArray(catData)) {
+                    const exact = catData.find(c => (c.slug || '').toLowerCase() === 'blog' || (c.name || '').toLowerCase() === 'blog');
+                    blogCatId = exact ? exact.id : (catData[0] ? catData[0].id : null);
+                }
+            } catch (e) {}
+            if(!blogCatId) return alert('blogカテゴリが見つかりませんでした。');
+
+            const allPosts = [];
+            let page = 1;
+            while (true) {
+                const res = await fetch(`${s.url}/posts?status=${encodeURIComponent(statusValue)}&categories=${blogCatId}&per_page=100&page=${page}`, {
+                    headers: { 'Authorization': getAuth(s.user, s.pass) }
+                });
+                if(!res.ok) break;
+                const data = await res.json();
+                if(!Array.isArray(data) || data.length === 0) break;
+                allPosts.push(...data);
+                if(data.length < 100) break;
+                page += 1;
+            }
+            if(allPosts.length === 0) return alert('取り込み対象の記事がありません。');
+
+            // 既存履歴の重複判定
+            const localHistory = Array.isArray(db.history) ? db.history : [];
+            const existingSet = new Set(localHistory.map(h => normalizeFingerprint(h.title, h.content, h.date, h.link)));
+            let supaExisting = [];
+            if(USE_SUPABASE && sbUser) {
+                const { data, error } = await sb.from('histories').select('title,content,date_text,link');
+                if(error) return alert(error.message);
+                supaExisting = data || [];
+                supaExisting.forEach(r => existingSet.add(normalizeFingerprint(r.title, r.content, r.date_text, r.link)));
+            }
+
+            const toAdd = [];
+            allPosts.forEach(p => {
+                const title = (p.title && p.title.rendered) ? wpHtmlToText(p.title.rendered) : '無題';
+                const content = (p.content && p.content.rendered) ? wpHtmlToText(p.content.rendered) : '';
+                const dateText = p.date ? new Date(p.date).toLocaleString() : new Date().toLocaleString();
+                const link = p.id ? `${s.url.split('/wp-json')[0]}/wp-admin/post.php?post=${p.id}&action=edit` : '';
+                const key = normalizeFingerprint(title, content, dateText, link);
+                if(!existingSet.has(key)) {
+                    existingSet.add(key);
+                    toAdd.push({ title, content, date: dateText, link });
+                }
+            });
+
+            if(toAdd.length === 0) return alert('既に履歴に存在するため、追加はありません。');
+            if(!confirm(`${statusLabel} ${toAdd.length} 件を履歴へ取り込みます。実行しますか？`)) return;
+
+            if(USE_SUPABASE && sbUser) {
+                const payload = toAdd.map(h => ({
+                    user_id: sbUser.id,
+                    title: h.title,
+                    content: h.content,
+                    date_text: h.date,
+                    link: h.link || null
+                }));
+                const { error } = await sb.from('histories').insert(payload);
+                if(error) return alert(error.message);
+                await loadHistoryFromSupabase();
+            } else {
+                db.history = [...toAdd, ...localHistory];
+                saveDB();
+                renderHistory();
+            }
+            alert(`取り込み完了: ${toAdd.length} 件`);
         }
         async function migrateLocalHistoryToSupabase() {
             if(!USE_SUPABASE || !sbUser) return alert('SYNCログイン後に実行してください。');
