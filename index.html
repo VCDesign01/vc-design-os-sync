@@ -188,12 +188,20 @@
                     <p style="margin:0 0 15px 0; font-size:0.9em; font-weight:bold; color:var(--text-sub); line-height:1.5;">別バージョンのデータを検出して移行します。必要な場合のみ実行してください。</p>
                     <button class="btn-primary" style="width:100%; background:var(--contact-color);" onclick="forceMigrate()">旧データを検索して移行</button>
                 </div>
+                <div style="background: var(--input-bg); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border-color);">
+                    <h3 style="margin-top:0; color:var(--text-main); font-size:1.1em;">ローカル履歴をクラウドへ移行</h3>
+                    <p style="margin:0 0 15px 0; font-size:0.9em; font-weight:bold; color:var(--text-sub); line-height:1.5;">この端末に残っている履歴を Supabase にまとめて移行します。<br>まず「旧データを検索して移行」を実行してから押すのがおすすめです。</p>
+                    <button class="btn-primary" style="width:100%; background:var(--help-color);" onclick="migrateLocalHistoryToSupabase()">ローカル履歴をクラウドへ移行</button>
+                </div>
                 <h3 style="margin-top:0; font-size:1em;">ファイルでバックアップ</h3>
                 <div style="display:flex; gap:10px;">
                     <button class="btn-primary" style="flex:1;" onclick="exportFullBackup()">バックアップ保存</button>
                     <button class="btn-primary" style="flex:1; background:var(--text-sub);" onclick="document.getElementById('import-file').click()">バックアップ読込</button>
                 </div>
                 <input type="file" id="import-file" style="display:none;" onchange="importFullBackup(event)">
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button class="btn-primary" style="flex:1; background:var(--main-color);" onclick="downloadLatestAutoBackup()">最新自動バックアップを保存</button>
+                </div>
             </div>
             <div class="card">
                 <h3>新規サイト接続</h3>
@@ -500,7 +508,10 @@
             const binString = String.fromCodePoint(...bytes);
             return 'Basic ' + btoa(binString);
         }
-        function saveDB() { Object.keys(db).forEach(k => localStorage.setItem(KEY+k, JSON.stringify(db[k]))); }
+        function saveDB() {
+            Object.keys(db).forEach(k => localStorage.setItem(KEY+k, JSON.stringify(db[k])));
+            autoBackupSnapshot();
+        }
         function showView(id) { document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); document.getElementById(`view-${id}`).classList.add('active'); window.scrollTo(0,0); }
         function restore(i) { const h = db.history[i]; document.getElementById('post-title').value = h.title; document.getElementById('post-content').value = h.content; showView('editor'); analyzeTextForTerms(); }
         async function delHistory(i) {
@@ -668,6 +679,71 @@
             }));
             saveDB();
             renderHistory();
+        }
+        async function migrateLocalHistoryToSupabase() {
+            if(!USE_SUPABASE || !sbUser) return alert('SYNCログイン後に実行してください。');
+            const localHistory = JSON.parse(localStorage.getItem(KEY+'history') || '[]');
+            if(!Array.isArray(localHistory) || localHistory.length === 0) return alert('ローカル履歴が見つかりません。');
+            const { data, error } = await sb
+                .from('histories')
+                .select('title,content,date_text,link');
+            if(error) return alert(error.message);
+            const fingerprint = (t,c,d,l) => `${(t||'').trim()}|${(c||'').trim()}|${(d||'').trim()}|${(l||'').trim()}`.toLowerCase();
+            const existing = new Set((data || []).map(r => fingerprint(r.title, r.content, r.date_text, r.link)));
+            const toInsert = [];
+            localHistory.forEach(h => {
+                if(!h) return;
+                const row = {
+                    user_id: sbUser.id,
+                    title: h.title || '',
+                    content: h.content || '',
+                    date_text: h.date || '',
+                    link: h.link || null
+                };
+                const key = fingerprint(row.title, row.content, row.date_text, row.link);
+                if(!existing.has(key)) {
+                    existing.add(key);
+                    toInsert.push(row);
+                }
+            });
+            if(toInsert.length === 0) return alert('移行対象がありません。');
+            if(!confirm(`ローカル履歴 ${toInsert.length} 件をクラウドへ移行しますか？`)) return;
+            const { error: insErr } = await sb.from('histories').insert(toInsert);
+            if(insErr) return alert(insErr.message);
+            await loadHistoryFromSupabase();
+            alert(`移行完了: ${toInsert.length} 件`);
+        }
+        function downloadLatestAutoBackup() {
+            const backups = JSON.parse(localStorage.getItem(KEY+'auto_backups') || '[]');
+            if(!Array.isArray(backups) || backups.length === 0) return alert('自動バックアップがまだありません。');
+            const latest = backups[backups.length - 1];
+            if(!latest || !latest.data) return alert('自動バックアップが読み込めません。');
+            const ts = latest.ts ? new Date(latest.ts) : new Date();
+            const name = `AutoBackup_${formatTimestamp(ts)}.json`;
+            downloadJson(latest.data, name);
+        }
+        function autoBackupSnapshot() {
+            const now = Date.now();
+            const last = parseInt(localStorage.getItem(KEY+'auto_backup_last') || '0', 10);
+            const minInterval = 2 * 60 * 1000;
+            if(now - last < minInterval) return;
+            localStorage.setItem(KEY+'auto_backup_last', String(now));
+            const backups = JSON.parse(localStorage.getItem(KEY+'auto_backups') || '[]');
+            const payload = JSON.stringify(db);
+            backups.push({ ts: now, data: payload });
+            const trimmed = backups.slice(-5);
+            localStorage.setItem(KEY+'auto_backups', JSON.stringify(trimmed));
+        }
+        function formatTimestamp(d) {
+            const pad = (n) => String(n).padStart(2,'0');
+            return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        }
+        function downloadJson(jsonString, filename) {
+            const b = new Blob([jsonString],{type:"application/json"});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(b);
+            a.download = filename;
+            a.click();
         }
         function exportFullBackup() { const d=JSON.stringify(db,null,2); const b=new Blob([d],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Backup.json`; a.click(); }
         function importFullBackup(e) { const r=new FileReader(); r.onload=(ev)=>{ try{ db=JSON.parse(ev.target.result); saveDB(); location.reload(); }catch(err){alert('Invalid file');} }; r.readAsText(e.target.files[0]); }
