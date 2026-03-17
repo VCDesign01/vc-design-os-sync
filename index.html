@@ -74,6 +74,15 @@
     </svg>
 
     <div id="layer-auth">
+        <div class="auth-card" id="form-supabase" style="display:none;">
+            <h1 style="color:var(--main-color); font-weight:900;">SYNC LOGIN</h1>
+            <div class="input-group">
+                <input type="email" id="sb-email" placeholder="メールアドレス">
+                <input type="password" id="sb-pass" placeholder="パスワード">
+                <button class="btn-primary" onclick="handleSupabaseLogin()">ログイン</button>
+                <button class="btn-primary" style="background:var(--text-sub);" onclick="handleSupabaseSignup()">新規登録</button>
+            </div>
+        </div>
         <div class="auth-card" id="form-setup" style="display:none;">
             <h1 style="color:var(--main-color); font-weight:900;">WELCOME OS v13</h1>
             <div class="input-group">
@@ -241,24 +250,33 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         const KEY = 'vcd_v13_';
         let db = { user: null, sites: [], media: [], history: [] };
         let autoSelectTerms = localStorage.getItem(KEY+'auto_select_terms') === '1';
+        const USE_SUPABASE = true;
+        const SUPABASE_URL = 'https://qjdqblfydxzpeulhghhi.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_O5XfEVAyp_J8mspiiS5w2g_26LlhzqH';
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let sbUser = null;
 
         window.onload = () => {
             migrateData();
             loadDB();
             if(localStorage.getItem(KEY+'theme')==='dark') document.body.dataset.theme = 'dark';
-            
-            if(!db.user) {
-                document.getElementById('form-setup').style.display = 'block';
+            if(USE_SUPABASE) {
+                initSupabaseAuth();
             } else {
-                if(sessionStorage.getItem(KEY+'logged_in')) {
-                    startApp();
+                if(!db.user) {
+                    document.getElementById('form-setup').style.display = 'block';
                 } else {
-                    document.getElementById('form-login').style.display = 'block'; 
-                    document.getElementById('login-title').innerText = db.user.appName; 
+                    if(sessionStorage.getItem(KEY+'logged_in')) {
+                        startApp();
+                    } else {
+                        document.getElementById('form-login').style.display = 'block'; 
+                        document.getElementById('login-title').innerText = db.user.appName; 
+                    }
                 }
             }
         };
@@ -355,6 +373,48 @@
                 alert('パスワードが違います。');
             }
         }
+        async function initSupabaseAuth() {
+            const { data } = await sb.auth.getSession();
+            sbUser = data.session?.user || null;
+            if(sbUser) {
+                await loadHistoryFromSupabase();
+                startAfterAuth();
+            } else {
+                document.getElementById('form-supabase').style.display = 'block';
+            }
+        }
+        async function handleSupabaseLogin() {
+            const email = document.getElementById('sb-email').value.trim();
+            const password = document.getElementById('sb-pass').value;
+            if(!email || !password) return alert('メールとパスワードを入力してください。');
+            const { data, error } = await sb.auth.signInWithPassword({ email, password });
+            if(error) return alert(error.message);
+            sbUser = data.user;
+            await loadHistoryFromSupabase();
+            startAfterAuth();
+        }
+        async function handleSupabaseSignup() {
+            const email = document.getElementById('sb-email').value.trim();
+            const password = document.getElementById('sb-pass').value;
+            if(!email || !password) return alert('メールとパスワードを入力してください。');
+            const { data, error } = await sb.auth.signUp({ email, password });
+            if(error) return alert(error.message);
+            if(data.session) {
+                sbUser = data.user;
+                await loadHistoryFromSupabase();
+                startAfterAuth();
+            } else {
+                alert('確認メールを送信しました。メール内のリンクを開いてからログインしてください。');
+            }
+        }
+        function startAfterAuth() {
+            if(!db.user) {
+                document.getElementById('form-supabase').style.display = 'none';
+                document.getElementById('form-setup').style.display = 'block';
+            } else {
+                startApp();
+            }
+        }
 
         function startApp() {
             document.getElementById('layer-auth').style.display = 'none';
@@ -366,8 +426,12 @@
         }
 
         function handleLogout() {
-            sessionStorage.removeItem(KEY+'logged_in');
-            location.reload();
+            if(USE_SUPABASE) {
+                sb.auth.signOut().finally(() => location.reload());
+            } else {
+                sessionStorage.removeItem(KEY+'logged_in');
+                location.reload();
+            }
         }
 
         function toggleTheme() {
@@ -439,7 +503,19 @@
         function saveDB() { Object.keys(db).forEach(k => localStorage.setItem(KEY+k, JSON.stringify(db[k]))); }
         function showView(id) { document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); document.getElementById(`view-${id}`).classList.add('active'); window.scrollTo(0,0); }
         function restore(i) { const h = db.history[i]; document.getElementById('post-title').value = h.title; document.getElementById('post-content').value = h.content; showView('editor'); analyzeTextForTerms(); }
-        function delHistory(i) { if(confirm('消去しますか？')) { db.history.splice(i,1); saveDB(); renderHistory(); } }
+        async function delHistory(i) {
+            if(!confirm('消去しますか？')) return;
+            const h = db.history[i];
+            if(USE_SUPABASE && sbUser && h && h.id) {
+                const { error } = await sb.from('histories').delete().eq('id', h.id).eq('user_id', sbUser.id);
+                if(error) { alert(error.message); return; }
+                await loadHistoryFromSupabase();
+            } else {
+                db.history.splice(i,1);
+            }
+            saveDB();
+            renderHistory();
+        }
         function delSite(i) { if(confirm('消去しますか？')) { db.sites.splice(i,1); saveDB(); renderAll(); } }
         function delMedia(i) { if(confirm('消去しますか？')) { db.media.splice(i,1); saveDB(); renderAll(); } }
         function handleSetup() { const u=document.getElementById('setup-user').value, a=document.getElementById('setup-app').value, k=document.getElementById('setup-key').value; if(u&&a&&k){db.user={name:u,appName:a,masterKey:k};saveDB();sessionStorage.setItem(KEY+'logged_in', 'true');location.reload();} }
@@ -449,7 +525,26 @@
         function addSite() { const n=document.getElementById('new-site-name').value, u=`${document.getElementById('magic-url').value.replace(/\/$/, "")}/wp-json/wp/v2`, us=document.getElementById('new-site-user').value.trim(), p=document.getElementById('new-site-pass').value.replace(/\s+/g, ''); if(n&&us&&p){db.sites.push({name:n,url:u,user:us,pass:p});saveDB();location.reload();} }
         async function refreshTerms() { const s=db.sites[document.getElementById('site-select').value]; if(s) fetchData(s,'categories','cat-list'), fetchData(s,'tags','tag-list'); }
         async function fetchData(s,t,e) { const c=document.getElementById(e); c.innerText='Sync...'; try { const res=await fetch(`${s.url}/${t}?per_page=100`, { headers: { 'Authorization': getAuth(s.user, s.pass) } }); const data=await res.json(); c.innerHTML=''; data.forEach(item => { const el=document.createElement('div'); el.className='item-chip'; el.dataset.id=item.id; el.innerText=item.name; el.onclick=()=>el.classList.toggle('active'); c.appendChild(el); }); analyzeTextForTerms(); } catch(err) { c.innerText='Error'; } }
-        function saveToHistory(m, l=null) { const t=document.getElementById('post-title').value||"無題", c=document.getElementById('post-content').value; db.history.unshift({title:t,content:c,date:new Date().toLocaleString(),link:l}); saveDB(); renderHistory(); if(m) alert('Saved!'); }
+        async function saveToHistory(m, l=null) {
+            const t=document.getElementById('post-title').value||"無題", c=document.getElementById('post-content').value;
+            const nowText = new Date().toLocaleString();
+            if(USE_SUPABASE && sbUser) {
+                const { error } = await sb.from('histories').insert({
+                    user_id: sbUser.id,
+                    title: t,
+                    content: c,
+                    date_text: nowText,
+                    link: l || null
+                });
+                if(error) { alert(error.message); return; }
+                await loadHistoryFromSupabase();
+            } else {
+                db.history.unshift({title:t,content:c,date:nowText,link:l});
+            }
+            saveDB();
+            renderHistory();
+            if(m) alert('Saved!');
+        }
         function toggleAutoSelectTerms(enabled) {
             autoSelectTerms = !!enabled;
             localStorage.setItem(KEY+'auto_select_terms', autoSelectTerms ? '1' : '0');
@@ -557,6 +652,23 @@
             saveToHistory(false, link);
             renderPublishOutput(t, c);
         }
+        async function loadHistoryFromSupabase() {
+            if(!sbUser) return;
+            const { data, error } = await sb
+                .from('histories')
+                .select('id,title,content,date_text,link,created_at')
+                .order('created_at', { ascending: false });
+            if(error) { alert(error.message); return; }
+            db.history = (data || []).map(row => ({
+                id: row.id,
+                title: row.title || '',
+                content: row.content || '',
+                date: row.date_text || '',
+                link: row.link || ''
+            }));
+            saveDB();
+            renderHistory();
+        }
         function exportFullBackup() { const d=JSON.stringify(db,null,2); const b=new Blob([d],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Backup.json`; a.click(); }
         function importFullBackup(e) { const r=new FileReader(); r.onload=(ev)=>{ try{ db=JSON.parse(ev.target.result); saveDB(); location.reload(); }catch(err){alert('Invalid file');} }; r.readAsText(e.target.files[0]); }
         function exportCSV() { let csv="\uFEFFTitle,Date,Link\n"; db.history.forEach(h=>csv+=`"${h.title}","${h.date}","${h.link||''}"\n`); const b=new Blob([csv],{type:"text/csv"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download="History.csv"; a.click(); }
@@ -580,13 +692,5 @@
             });
         }
     </script>
-    <!-- </body> の直前あたり -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-  const SUPABASE_URL = 'https://qjdqblfydxzpeulhghhi.supabase.co';
-  const SUPABASE_ANON_KEY = 'あなたの sb_publishable_...';
-  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-</script>
-
 </body>
 </html>
