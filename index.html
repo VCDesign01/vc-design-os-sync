@@ -56,6 +56,8 @@
         .contact-btn:hover { opacity: 0.9; }
         
         .input-group { display: flex; flex-direction: column; gap: 15px; }
+        .info-row { display:flex; gap:12px; flex-wrap:wrap; font-size:0.85em; color:var(--text-sub); }
+        .info-chip { background: var(--input-bg); border:1px solid var(--border-color); padding:6px 10px; border-radius:10px; }
     </style>
 </head>
 <body>
@@ -130,6 +132,9 @@
                     <h2 style="margin:0;">記事エディタ</h2>
                     <button class="btn-sync" style="background:var(--help-color); color:white; border:none;" onclick="saveToHistory(true)"><svg class="icon"><use xlink:href="#icon-save"></use></svg> 資産として保存</button>
                 </div>
+                <div class="info-row" style="margin-bottom:10px;">
+                    <span class="info-chip">送信先: <span id="active-site-name">未選択</span></span>
+                </div>
                 <div class="input-group">
                     <select id="site-select" onchange="refreshTerms()"></select>
                     <select id="post-status">
@@ -163,6 +168,12 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                     <h2>送信・保存履歴</h2>
                     <button onclick="exportCSV()" class="btn-sync"><svg class="icon" style="width:1em;height:1em;"><use xlink:href="#icon-download"></use></svg> CSV出力</button>
+                </div>
+                <div class="info-row" style="margin-bottom:15px;">
+                    <span class="info-chip">合計: <span id="stat-total">0</span></span>
+                    <span class="info-chip">今月: <span id="stat-month">0</span></span>
+                    <span class="info-chip">未送信: <span id="stat-unsent">0</span></span>
+                    <span class="info-chip">WP送信済: <span id="stat-wp-sent">0</span></span>
                 </div>
                 <div id="history-list"></div>
             </div>
@@ -199,6 +210,10 @@
             </div>
             <div class="card" style="border: 2px dashed var(--main-color);">
                 <h2>バックアップと移行</h2>
+                <div class="info-row" style="margin-bottom:15px;">
+                    <span class="info-chip">手動バックアップ: <span id="last-manual-backup">未実行</span></span>
+                    <span class="info-chip">自動バックアップ: <span id="last-auto-backup">未実行</span></span>
+                </div>
                 <div style="background: var(--input-bg); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border-color);">
                     <h3 style="margin-top:0; color:var(--text-main); font-size:1.1em;">旧データがある場合の復旧</h3>
                     <p style="margin:0 0 15px 0; font-size:0.9em; font-weight:bold; color:var(--text-sub); line-height:1.5;">別バージョンのデータを検出して移行します。必要な場合のみ実行してください。</p>
@@ -276,6 +291,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
+        const BRAND_NAME = 'VC DesignブログOS';
         const KEY = 'vcd_v13_';
         let db = { user: null, sites: [], media: [], history: [] };
         let autoSelectTerms = localStorage.getItem(KEY+'auto_select_terms') === '1';
@@ -299,7 +315,7 @@
                         startApp();
                     } else {
                         document.getElementById('form-login').style.display = 'block'; 
-                        document.getElementById('login-title').innerText = db.user.appName; 
+                        document.getElementById('login-title').innerText = BRAND_NAME; 
                     }
                 }
             }
@@ -465,14 +481,14 @@
         }
 
         function renderAll() {
-            document.getElementById('brand-logo').innerText = db.user.appName;
+            document.getElementById('brand-logo').innerText = BRAND_NAME;
             document.getElementById('welcome-msg').innerText = `Hello, ${db.user.name}.`;
             document.getElementById('set-user-name').value = db.user.name;
             document.getElementById('set-app-name').value = db.user.appName;
 
             document.getElementById('site-list-display').innerHTML = db.sites.map((s,i) => `
                 <div class="history-item">
-                    <span><strong>${s.name}</strong><br><small style="opacity:0.6;">User: ${s.user} | URL: ${s.url}</small></span>
+                    <span><strong>${s.name}</strong><br><small style="opacity:0.6;">User: ${s.user} | URL: ${s.url}<br>連携日: ${formatDateTime(s.connectedAt)}</small></span>
                     <button onclick="delSite(${i})" style="color:var(--contact-color); border:none; background:none; cursor:pointer; font-weight:bold;">削除</button>
                 </div>`).join('');
 
@@ -489,6 +505,8 @@
                 </div>`).join('');
 
             document.getElementById('site-select').innerHTML = db.sites.map((s,i) => `<option value="${i}">${s.name}</option>`).join('');
+            updateActiveSiteLabel();
+            updateBackupInfo();
             renderHistory();
         }
 
@@ -498,7 +516,8 @@
                 <div class="history-item">
                     <div class="list-content" onclick="restore(${i})" style="cursor:pointer; flex: 1;">
                         <strong style="font-size:1.1em; color:var(--text-main);">${h.title}</strong><br>
-                        <small style="color:var(--text-sub);">${h.date}</small>
+                        <small style="color:var(--text-sub);">作成日: ${formatHistoryDate(h)}</small><br>
+                        <small style="color:var(--text-sub);">WP送信: ${h.link ? '済' : '未'}</small>
                     </div>
                     <div style="display:flex; align-items:center;">
                         ${h.link ? `<span class="badge-sent">✅ WP済</span> <a href="${h.link}" target="_blank" style="text-decoration:none; font-size:0.85em; font-weight:bold; color:var(--main-color); margin-right:15px;">WPで確認</a>` : ''}
@@ -506,6 +525,7 @@
                         <button style="border:none; background:none; cursor:pointer; font-size:1.4em; color:var(--contact-color);" onclick="delHistory(${i})">×</button>
                     </div>
                 </div>`).join('');
+            updateHistoryStats();
         }
 
         function updateMedia(i) {
@@ -546,11 +566,11 @@
         function delSite(i) { if(confirm('消去しますか？')) { db.sites.splice(i,1); saveDB(); renderAll(); } }
         function delMedia(i) { if(confirm('消去しますか？')) { db.media.splice(i,1); saveDB(); renderAll(); } }
         function handleSetup() { const u=document.getElementById('setup-user').value, a=document.getElementById('setup-app').value, k=document.getElementById('setup-key').value; if(u&&a&&k){db.user={name:u,appName:a,masterKey:k};saveDB();sessionStorage.setItem(KEY+'logged_in', 'true');location.reload();} }
-        function updateProfile() { db.user.name=document.getElementById('set-user-name').value; db.user.appName=document.getElementById('set-app-name').value; saveDB(); document.getElementById('brand-logo').innerText=db.user.appName; }
+        function updateProfile() { db.user.name=document.getElementById('set-user-name').value; db.user.appName=document.getElementById('set-app-name').value; saveDB(); document.getElementById('brand-logo').innerText=BRAND_NAME; }
         function addMedia() { const n=document.getElementById('new-media-name').value, l=document.getElementById('new-media-letter').value; if(n){db.media.push({name:n,letter:l});saveDB();renderAll(); document.getElementById('new-media-name').value=''; document.getElementById('new-media-letter').value='';} }
         async function magicFetch() { let b=document.getElementById('magic-url').value.replace(/\/$/, ""); try { const res=await fetch(`${b}/wp-json/`); const d=await res.json(); document.getElementById('new-site-name').value=d.name; document.getElementById('magic-fields').style.display='flex'; } catch(e) { document.getElementById('magic-fields').style.display='flex'; } }
-        function addSite() { const n=document.getElementById('new-site-name').value, u=`${document.getElementById('magic-url').value.replace(/\/$/, "")}/wp-json/wp/v2`, us=document.getElementById('new-site-user').value.trim(), p=document.getElementById('new-site-pass').value.replace(/\s+/g, ''); if(n&&us&&p){db.sites.push({name:n,url:u,user:us,pass:p});saveDB();location.reload();} }
-        async function refreshTerms() { const s=db.sites[document.getElementById('site-select').value]; if(s) fetchData(s,'categories','cat-list'), fetchData(s,'tags','tag-list'); }
+        function addSite() { const n=document.getElementById('new-site-name').value, u=`${document.getElementById('magic-url').value.replace(/\/$/, "")}/wp-json/wp/v2`, us=document.getElementById('new-site-user').value.trim(), p=document.getElementById('new-site-pass').value.replace(/\s+/g, ''); if(n&&us&&p){db.sites.push({name:n,url:u,user:us,pass:p,connectedAt:new Date().toISOString()});saveDB();location.reload();} }
+        async function refreshTerms() { updateActiveSiteLabel(); const s=db.sites[document.getElementById('site-select').value]; if(s) fetchData(s,'categories','cat-list'), fetchData(s,'tags','tag-list'); }
         async function fetchData(s,t,e) { const c=document.getElementById(e); c.innerText='Sync...'; try { const res=await fetch(`${s.url}/${t}?per_page=100`, { headers: { 'Authorization': getAuth(s.user, s.pass) } }); const data=await res.json(); c.innerHTML=''; data.forEach(item => { const el=document.createElement('div'); el.className='item-chip'; el.dataset.id=item.id; el.innerText=item.name; el.onclick=()=>el.classList.toggle('active'); c.appendChild(el); }); analyzeTextForTerms(); } catch(err) { c.innerText='Error'; } }
         async function saveToHistory(m, l=null) {
             const t=document.getElementById('post-title').value||"無題", c=document.getElementById('post-content').value;
@@ -648,10 +668,37 @@
             document.getElementById('publish-output').innerHTML = db.media.slice(0, 10).map((m, i) => `
                 <div class="card" style="padding: 20px;">
                     <h3 style="margin-top:0; color:var(--text-main);">${m.name}</h3>
-                    <textarea id="p-${i}" style="height:250px; font-size:14px; margin-bottom:15px; border-radius:10px; line-height:1.6;">${t}\n\n${c}\n\n${m.letter}</textarea>
-                    <button class="btn-primary" style="width:100%; background:var(--main-color);" onclick="navigator.clipboard.writeText(document.getElementById('p-${i}').value); this.innerText='COPIED!'; setTimeout(()=>this.innerText='一括コピー', 2000);">一括コピー</button>
+                    <label style="font-size:0.85em; color:var(--text-sub); font-weight:bold;">タイトル（媒体用）</label>
+                    <input id="pt-${i}" type="text" value="${t}" oninput="updateMediaPreview(${i})">
+                    <label style="font-size:0.85em; color:var(--text-sub); font-weight:bold;">本文（媒体用）</label>
+                    <textarea id="pc-${i}" style="height:180px; font-size:14px; margin-bottom:10px; border-radius:10px; line-height:1.6;" oninput="updateMediaPreview(${i})">${c}</textarea>
+                    <label style="font-size:0.85em; color:var(--text-sub); font-weight:bold;">フッター（媒体用）</label>
+                    <textarea id="pf-${i}" style="height:120px; font-size:13px; margin-bottom:10px; border-radius:10px; line-height:1.6;" oninput="updateMediaPreview(${i})">${m.letter || ''}</textarea>
+                    <label style="font-size:0.85em; color:var(--text-sub); font-weight:bold;">完成テキスト</label>
+                    <textarea id="po-${i}" style="height:200px; font-size:14px; margin-bottom:15px; border-radius:10px; line-height:1.6;" readonly></textarea>
+                    <button class="btn-primary" style="width:100%; background:var(--main-color);" onclick="copyMediaOutput(${i}, this)">一括コピー</button>
                 </div>`).join('');
+            db.media.slice(0, 10).forEach((_, i) => updateMediaPreview(i));
             showView('publish');
+        }
+        function buildMediaOutput(i) {
+            const t = document.getElementById(`pt-${i}`)?.value || '';
+            const c = document.getElementById(`pc-${i}`)?.value || '';
+            const f = document.getElementById(`pf-${i}`)?.value || '';
+            return [t, c, f].map(v => v.trim()).filter(Boolean).join('\n\n');
+        }
+        function updateMediaPreview(i) {
+            const out = buildMediaOutput(i);
+            const el = document.getElementById(`po-${i}`);
+            if(el) el.value = out;
+        }
+        function copyMediaOutput(i, btn) {
+            const out = buildMediaOutput(i);
+            navigator.clipboard.writeText(out);
+            if(btn) {
+                btn.innerText = 'COPIED!';
+                setTimeout(() => btn.innerText = '一括コピー', 2000);
+            }
         }
         function regenerateMediaFromHistory(i) {
             const h = db.history[i];
@@ -836,15 +883,21 @@
             const minInterval = 2 * 60 * 1000;
             if(now - last < minInterval) return;
             localStorage.setItem(KEY+'auto_backup_last', String(now));
+            localStorage.setItem(KEY+'last_auto_backup_at', String(now));
             const backups = JSON.parse(localStorage.getItem(KEY+'auto_backups') || '[]');
             const payload = JSON.stringify(db);
             backups.push({ ts: now, data: payload });
             const trimmed = backups.slice(-5);
             localStorage.setItem(KEY+'auto_backups', JSON.stringify(trimmed));
+            updateBackupInfo();
         }
         function formatTimestamp(d) {
             const pad = (n) => String(n).padStart(2,'0');
             return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        }
+        function formatDateTime(v) {
+            if(!v) return '未登録';
+            try { return new Date(v).toLocaleString(); } catch(e) { return '未登録'; }
         }
         function downloadJson(jsonString, filename) {
             const b = new Blob([jsonString],{type:"application/json"});
@@ -853,7 +906,55 @@
             a.download = filename;
             a.click();
         }
-        function exportFullBackup() { const d=JSON.stringify(db,null,2); const b=new Blob([d],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Backup.json`; a.click(); }
+        function updateActiveSiteLabel() {
+            const el = document.getElementById('active-site-name');
+            if(!el) return;
+            const idx = document.getElementById('site-select')?.value;
+            const s = db.sites[idx];
+            el.innerText = s ? s.name : '未選択';
+        }
+        function updateBackupInfo() {
+            const manual = localStorage.getItem(KEY+'last_backup_at');
+            const auto = localStorage.getItem(KEY+'last_auto_backup_at');
+            const manualEl = document.getElementById('last-manual-backup');
+            const autoEl = document.getElementById('last-auto-backup');
+            if(manualEl) manualEl.innerText = manual ? new Date(parseInt(manual,10)).toLocaleString() : '未実行';
+            if(autoEl) autoEl.innerText = auto ? new Date(parseInt(auto,10)).toLocaleString() : '未実行';
+        }
+        function getHistoryDate(h) {
+            if(!h) return null;
+            if(h.date) {
+                const d = new Date(h.date);
+                if(!isNaN(d.getTime())) return d;
+            }
+            return null;
+        }
+        function formatHistoryDate(h) {
+            const d = getHistoryDate(h);
+            return d ? d.toLocaleString() : '未登録';
+        }
+        function updateHistoryStats() {
+            const total = db.history.length;
+            const now = new Date();
+            const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            let monthCount = 0;
+            let wpSent = 0;
+            db.history.forEach(h => {
+                const d = getHistoryDate(h);
+                if(d && d >= startMonth) monthCount += 1;
+                if(h.link) wpSent += 1;
+            });
+            const unsent = total - wpSent;
+            const totalEl = document.getElementById('stat-total');
+            const monthEl = document.getElementById('stat-month');
+            const unsentEl = document.getElementById('stat-unsent');
+            const wpSentEl = document.getElementById('stat-wp-sent');
+            if(totalEl) totalEl.innerText = total;
+            if(monthEl) monthEl.innerText = monthCount;
+            if(unsentEl) unsentEl.innerText = unsent;
+            if(wpSentEl) wpSentEl.innerText = wpSent;
+        }
+        function exportFullBackup() { const d=JSON.stringify(db,null,2); const b=new Blob([d],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Backup.json`; a.click(); localStorage.setItem(KEY+'last_backup_at', String(Date.now())); updateBackupInfo(); }
         function importFullBackup(e) { const r=new FileReader(); r.onload=(ev)=>{ try{ db=JSON.parse(ev.target.result); saveDB(); location.reload(); }catch(err){alert('Invalid file');} }; r.readAsText(e.target.files[0]); }
         function exportCSV() { let csv="\uFEFFTitle,Date,Link\n"; db.history.forEach(h=>csv+=`"${h.title}","${h.date}","${h.link||''}"\n`); const b=new Blob([csv],{type:"text/csv"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download="History.csv"; a.click(); }
         // --- テキスト解析（タグ・カテゴリー候補の可視化） ---
