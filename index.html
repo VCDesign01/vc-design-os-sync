@@ -121,8 +121,9 @@
             <h1 id="welcome-msg" style="font-weight:900; margin-top:50px;">Work Smart.</h1>
             <div class="info-row" style="justify-content:center; margin-top:18px;">
                 <span class="info-chip">合計: <span id="dash-total">0</span></span>
-                <span class="info-chip">今月: <span id="dash-month">0</span></span>
-                <span class="info-chip">未送信: <span id="dash-unsent">0</span></span>
+                <span class="info-chip">今月投稿: <span id="dash-month">0</span></span>
+                <span class="info-chip">先月投稿: <span id="dash-last-month">0</span></span>
+                <span class="info-chip">ストック: <span id="dash-unsent">0</span></span>
                 <span class="info-chip">WP送信済: <span id="dash-wp-sent">0</span></span>
             </div>
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:30px; margin-top:50px;">
@@ -177,8 +178,9 @@
                 </div>
                 <div class="info-row" style="margin-bottom:15px;">
                     <span class="info-chip">合計: <span id="stat-total">0</span></span>
-                    <span class="info-chip">今月: <span id="stat-month">0</span></span>
-                    <span class="info-chip">未送信: <span id="stat-unsent">0</span></span>
+                    <span class="info-chip">今月投稿: <span id="stat-month">0</span></span>
+                    <span class="info-chip">先月投稿: <span id="stat-last-month">0</span></span>
+                    <span class="info-chip">ストック: <span id="stat-unsent">0</span></span>
                     <span class="info-chip">WP送信済: <span id="stat-wp-sent">0</span></span>
                 </div>
                 <div id="history-list"></div>
@@ -195,6 +197,10 @@
             </div>
             <div class="card">
                 <h2>WordPress 連携 / 媒体設定</h2>
+                <div class="info-row" style="margin:10px 0 15px 0;">
+                    <span class="info-chip">サイト: <span id="site-count">0</span> <span id="site-remaining"></span></span>
+                    <span class="info-chip">媒体テンプレ: <span id="media-count">0/10</span></span>
+                </div>
                 <div id="site-list-display"></div>
                 <div id="media-list-display"></div>
                 <div style="margin-top:20px; background: var(--input-bg); padding:20px; border-radius:15px; border:1px solid var(--border-color);">
@@ -257,9 +263,6 @@
             </div>
             <div class="card">
                 <h3>媒体テンプレート追加</h3>
-                <div class="info-row" style="margin:10px 0 0 0;">
-                    <span class="info-chip">媒体テンプレ: <span id="media-count">0</span>/10</span>
-                </div>
                 <div class="input-group">
                     <input type="text" id="new-media-name" placeholder="媒体名（例: X用 / Instagram用 / LINE用）">
                     <textarea id="new-media-letter" placeholder="末尾に付与する署名やハッシュタグ" style="height:100px;"></textarea>
@@ -296,6 +299,12 @@
                     <li>別端末で使う場合は <strong>バックアップ読込</strong> で復元します。</li>
                     <li>自動バックアップは最新分を <strong>最新自動バックアップを保存</strong> で出力できます。</li>
                 </ol>
+                <h3>WP下書きの一括取り込み</h3>
+                <ol style="line-height: 2; padding-left: 20px; color: var(--text-main);">
+                    <li><strong>SETTING</strong> の「WP下書きを履歴へ一括取り込み」から実行します。</li>
+                    <li>対象を「下書き／公開済み／両方」から選べます。</li>
+                    <li>既に履歴にある記事は自動でスキップされます。</li>
+                </ol>
                 <h3>アプリとして使う方法（簡易）</h3>
                 <ol style="line-height: 2; padding-left: 20px; color: var(--text-main);">
                     <li>ブラウザで開いたら、右上メニューから「ホーム画面に追加」します。</li>
@@ -331,6 +340,8 @@
     <script>
         const BRAND_NAME = 'VC DesignブログOS';
         const KEY = 'vcd_v13_';
+        const MEDIA_LIMIT = 10;
+        const SITE_LIMIT = null; // 上限なしの場合は null
         let db = { user: null, sites: [], media: [], history: [], platforms: [] };
         let autoSelectTerms = localStorage.getItem(KEY+'auto_select_terms') === '1';
         const USE_SUPABASE = true;
@@ -559,6 +570,7 @@
             updateActiveSiteLabel();
             updateBackupInfo();
             updateMediaLimitInfo();
+            updateSiteLimitInfo();
             renderPlatformConfig();
             updateHistoryStats();
             renderHistory();
@@ -993,28 +1005,35 @@
             const total = db.history.length;
             const now = new Date();
             const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             let monthCount = 0;
+            let lastMonthCount = 0;
             let wpSent = 0;
             db.history.forEach(h => {
                 const d = getHistoryDate(h);
                 if(d && d >= startMonth) monthCount += 1;
+                if(d && d >= startLastMonth && d < startMonth) lastMonthCount += 1;
                 if(h.link) wpSent += 1;
             });
             const unsent = total - wpSent;
             const totalEl = document.getElementById('stat-total');
             const monthEl = document.getElementById('stat-month');
+            const lastMonthEl = document.getElementById('stat-last-month');
             const unsentEl = document.getElementById('stat-unsent');
             const wpSentEl = document.getElementById('stat-wp-sent');
             if(totalEl) totalEl.innerText = total;
             if(monthEl) monthEl.innerText = monthCount;
+            if(lastMonthEl) lastMonthEl.innerText = lastMonthCount;
             if(unsentEl) unsentEl.innerText = unsent;
             if(wpSentEl) wpSentEl.innerText = wpSent;
             const dashTotal = document.getElementById('dash-total');
             const dashMonth = document.getElementById('dash-month');
+            const dashLastMonth = document.getElementById('dash-last-month');
             const dashUnsent = document.getElementById('dash-unsent');
             const dashWp = document.getElementById('dash-wp-sent');
             if(dashTotal) dashTotal.innerText = total;
             if(dashMonth) dashMonth.innerText = monthCount;
+            if(dashLastMonth) dashLastMonth.innerText = lastMonthCount;
             if(dashUnsent) dashUnsent.innerText = unsent;
             if(dashWp) dashWp.innerText = wpSent;
         }
@@ -1050,7 +1069,21 @@
             const el = document.getElementById('media-count');
             if(!el) return;
             const count = Array.isArray(db.media) ? db.media.length : 0;
-            el.innerText = count;
+            el.innerText = `${count}/${MEDIA_LIMIT}`;
+        }
+        function updateSiteLimitInfo() {
+            const el = document.getElementById('site-count');
+            const rem = document.getElementById('site-remaining');
+            if(!el) return;
+            const count = Array.isArray(db.sites) ? db.sites.length : 0;
+            if(SITE_LIMIT) {
+                const remain = Math.max(0, SITE_LIMIT - count);
+                el.innerText = `${count}/${SITE_LIMIT}`;
+                if(rem) rem.innerText = `（残り ${remain}）`;
+            } else {
+                el.innerText = `${count}`;
+                if(rem) rem.innerText = `（上限なし）`;
+            }
         }
         function slugifyLabel(v) {
             return (v || '')
