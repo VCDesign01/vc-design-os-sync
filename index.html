@@ -190,6 +190,9 @@
                     <h2>送信・保存履歴</h2>
                     <button onclick="exportCSV()" class="btn-sync"><svg class="icon" style="width:1em;height:1em;"><use xlink:href="#icon-download"></use></svg> CSV出力</button>
                 </div>
+                <div style="font-size:0.85em; color:var(--text-sub); margin:-6px 0 12px 0; line-height:1.6;">
+                    <b>WP投稿</b>: 手動チェック / <b>WP済</b>: アプリ経由でWP送信済み / <b>WPで確認</b>: 管理画面を開く
+                </div>
                 <div class="info-row" style="margin-bottom:15px;">
                     <span class="info-chip">合計: <span id="stat-total">0</span></span>
                     <span class="info-chip">今月投稿: <span id="stat-month">0</span></span>
@@ -724,7 +727,9 @@
                     </div>
                     <div class="history-actions">
                         ${renderWpPostedCheck(h, i)}
+                        ${renderWpFailedBadge(h, i)}
                         ${h.link ? `<span class="badge-sent">✅ WP済</span> <a href="${h.link}" target="_blank" style="text-decoration:none; font-size:0.85em; font-weight:bold; color:var(--main-color); margin-right:15px;">WPで確認</a>` : ''}
+                        ${renderWpRetryButton(h, i)}
                         <button class="btn-sync" style="margin-right:10px;" onclick="regenerateMediaFromHistory(${i})">媒体コピーを再生成</button>
                         <button style="border:none; background:none; cursor:pointer; font-size:1.4em; color:var(--contact-color);" onclick="delHistory(${i})">×</button>
                     </div>
@@ -777,25 +782,122 @@
         async function addSite() { const n=document.getElementById('new-site-name').value, u=`${document.getElementById('magic-url').value.replace(/\/$/, "")}/wp-json/wp/v2`, us=document.getElementById('new-site-user').value.trim(), p=document.getElementById('new-site-pass').value.replace(/\s+/g, ''); if(n&&us&&p){db.sites.push({name:n,url:u,user:us,pass:p,connectedAt:new Date().toISOString()});saveDB(); if(USE_SUPABASE && sbUser) await syncSitesToSupabase(); location.reload();} }
         async function refreshTerms() { updateActiveSiteLabel(); const s=db.sites[document.getElementById('site-select').value]; if(s) fetchData(s,'categories','cat-list'), fetchData(s,'tags','tag-list'); }
         async function fetchData(s,t,e) { const c=document.getElementById(e); c.innerText='Sync...'; try { const res=await fetch(`${s.url}/${t}?per_page=100`, { headers: { 'Authorization': getAuth(s.user, s.pass) } }); const data=await res.json(); c.innerHTML=''; data.forEach(item => { const el=document.createElement('div'); el.className='item-chip'; el.dataset.id=item.id; el.innerText=item.name; el.onclick=()=>el.classList.toggle('active'); c.appendChild(el); }); analyzeTextForTerms(); } catch(err) { c.innerText='Error'; } }
+        function getActiveSite() {
+            if(!Array.isArray(db.sites) || db.sites.length === 0) return null;
+            const sel = document.getElementById('site-select');
+            const idx = sel ? parseInt(sel.value, 10) : 0;
+            return db.sites[Number.isFinite(idx) ? idx : 0] || db.sites[0];
+        }
+        async function sendToWp(site, title, content, status) {
+            if(!site) return { ok: false, error: 'サイトが未設定です。' };
+            const payload = { title, content, status };
+            const catIds = Array.from(document.getElementById('cat-list').querySelectorAll('.item-chip.active')).map(el => parseInt(el.dataset.id));
+            const tagIds = Array.from(document.getElementById('tag-list').querySelectorAll('.item-chip.active')).map(el => parseInt(el.dataset.id));
+            if(catIds.length > 0) payload.categories = catIds;
+            if(tagIds.length > 0) payload.tags = tagIds;
+            try {
+                const res = await fetch(`${site.url}/posts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': getAuth(site.user, site.pass) },
+                    body: JSON.stringify(payload)
+                });
+                if(res.ok) {
+                    const r = await res.json();
+                    const link = r?.id ? `${site.url.split('/wp-json')[0]}/wp-admin/post.php?post=${r.id}&action=edit` : null;
+                    return { ok: true, link };
+                }
+                const err = await res.json();
+                return { ok: false, error: JSON.stringify(err) };
+            } catch (e) {
+                return { ok: false, error: e.message };
+            }
+        }
+        function getWpErrorMap() {
+            try { return JSON.parse(localStorage.getItem(KEY+'wp_send_errors') || '{}'); } catch(e) { return {}; }
+        }
+        function saveWpErrorMap(map) {
+            localStorage.setItem(KEY+'wp_send_errors', JSON.stringify(map || {}));
+        }
+        function setWpSendFailed(key, message) {
+            const map = getWpErrorMap();
+            map[key] = message || '送信失敗';
+            saveWpErrorMap(map);
+            platformChecksMap = platformChecksMap || {};
+            if(!platformChecksMap[key]) platformChecksMap[key] = {};
+            platformChecksMap[key].wp_send_failed = true;
+            savePlatformChecksLocal(platformChecksMap);
+            syncPlatformCheckToSupabase(key, 'wp_send_failed', true);
+        }
+        function clearWpSendFailed(key) {
+            const map = getWpErrorMap();
+            delete map[key];
+            saveWpErrorMap(map);
+            if(platformChecksMap && platformChecksMap[key]) {
+                platformChecksMap[key].wp_send_failed = false;
+                savePlatformChecksLocal(platformChecksMap);
+            }
+            syncPlatformCheckToSupabase(key, 'wp_send_failed', false);
+        }
+        function renderWpFailedBadge(h, i) {
+            const key = getHistoryKey(h, i);
+            const map = getPlatformChecksMap();
+            const failed = map?.[key]?.wp_send_failed;
+            if(!failed) return '';
+            const errMap = getWpErrorMap();
+            const msg = errMap[key] || '送信失敗';
+            return `<span class="badge-sent" style="background:#ef4444;" title="${msg}">送信失敗</span>`;
+        }
+        function renderWpRetryButton(h, i) {
+            const key = getHistoryKey(h, i);
+            const map = getPlatformChecksMap();
+            const failed = map?.[key]?.wp_send_failed;
+            if(!failed) return '';
+            return `<button class="btn-sync" onclick="retryPublish(${i})">再送</button>`;
+        }
+        async function retryPublish(i) {
+            const h = db.history[i];
+            if(!h) return;
+            const site = getActiveSite();
+            if(!site) return alert('サイトが未設定です。SETTINGから登録してください。');
+            if(!confirm('この履歴をWordPressへ再送しますか？')) return;
+            const status = document.getElementById('post-status')?.value || 'draft';
+            const result = await sendToWp(site, h.title || '無題', h.content || '', status);
+            if(result.ok) {
+                h.link = result.link || h.link || null;
+                clearWpSendFailed(getHistoryKey(h, i));
+                saveDB();
+                renderHistory();
+                alert('WPへの再送が成功しました。');
+            } else {
+                setWpSendFailed(getHistoryKey(h, i), result.error || '送信失敗');
+                renderHistory();
+                alert('エラー: WPへの送信に失敗しました\n' + (result.error || '不明なエラー'));
+            }
+        }
         async function saveToHistory(m, l=null) {
             const t=document.getElementById('post-title').value||"無題", c=document.getElementById('post-content').value;
             const nowText = new Date().toLocaleString();
             if(USE_SUPABASE && sbUser) {
-                const { error } = await sb.from('histories').insert({
+                const { data, error } = await sb.from('histories').insert({
                     user_id: sbUser.id,
                     title: t,
                     content: c,
                     date_text: nowText,
                     link: l || null
-                });
+                }).select('id').single();
                 if(error) { alert(error.message); return; }
                 await loadHistoryFromSupabase();
+                if(m) alert('Saved!');
+                return data?.id ? `id:${data.id}` : null;
             } else {
-                db.history.unshift({title:t,content:c,date:nowText,link:l});
+                const entry = { title:t, content:c, date:nowText, link:l };
+                db.history.unshift(entry);
+                const key = getHistoryKey(entry, 0);
+                saveDB();
+                renderHistory();
+                if(m) alert('Saved!');
+                return key;
             }
-            saveDB();
-            renderHistory();
-            if(m) alert('Saved!');
         }
         function toggleAutoSelectTerms(enabled) {
             autoSelectTerms = !!enabled;
@@ -918,17 +1020,19 @@
             const c = prepared.mainContent;
             if(!c) return alert('本文が空です。送信本文を入力してください。');
             let link=null;
-            if(s) { try { 
-                const catIds = Array.from(document.getElementById('cat-list').querySelectorAll('.item-chip.active')).map(el => parseInt(el.dataset.id));
-                const tagIds = Array.from(document.getElementById('tag-list').querySelectorAll('.item-chip.active')).map(el => parseInt(el.dataset.id));
-                const payload = { title: t, content: c, status: document.getElementById('post-status').value };
-                if(catIds.length > 0) payload.categories = catIds;
-                if(tagIds.length > 0) payload.tags = tagIds;
-                
-                const res=await fetch(`${s.url}/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': getAuth(s.user, s.pass) }, body: JSON.stringify(payload) }); 
-                if(res.ok) { const r=await res.json(); link=`${s.url.split('/wp-json')[0]}/wp-admin/post.php?post=${r.id}&action=edit`; alert('WPへの送信が成功しました。'); } else { const err=await res.json(); alert('エラー: WPへの送信に失敗しました\n' + JSON.stringify(err)); } 
-            } catch(e) { alert('送信エラー: ' + e.message); } }
-            saveToHistory(false, link);
+            let wpError = null;
+            if(s) {
+                const result = await sendToWp(s, t, c, document.getElementById('post-status').value);
+                if(result.ok) {
+                    link = result.link || null;
+                    alert('WPへの送信が成功しました。');
+                } else {
+                    wpError = result.error || '送信失敗';
+                    alert('エラー: WPへの送信に失敗しました\n' + (result.error || '不明なエラー'));
+                }
+            }
+            const createdKey = await saveToHistory(false, link);
+            if(wpError && createdKey) setWpSendFailed(createdKey, wpError);
             renderPublishOutput(t, c);
         }
         async function loadHistoryFromSupabase() {
