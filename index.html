@@ -687,8 +687,16 @@
             document.getElementById('set-app-name').value = db.user.appName;
 
             document.getElementById('site-list-display').innerHTML = db.sites.map((s,i) => `
-                <div class="history-item">
-                    <span><strong>${s.name}</strong><br><small style="opacity:0.6;">User: ${s.user} | URL: ${s.url}<br>連携日: ${formatDateTime(s.connectedAt)}</small></span>
+                <div class="history-item" style="align-items:flex-start; gap:15px;">
+                    <div style="flex:1;">
+                        <strong>${s.name}</strong><br>
+                        <small style="opacity:0.6;">URL: ${s.url}<br>連携日: ${formatDateTime(s.connectedAt)}</small>
+                        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;">
+                            <input type="text" id="edit-site-user-${i}" value="${s.user || ''}" placeholder="ユーザー名" style="max-width:220px;">
+                            <input type="password" id="edit-site-pass-${i}" value="${s.pass || ''}" placeholder="アプリパスワード" style="max-width:260px;">
+                            <button class="btn-sync" style="background:var(--success-color); color:white; border:none;" onclick="updateSite(${i})">更新して保存</button>
+                        </div>
+                    </div>
                     <button onclick="delSite(${i})" style="color:var(--contact-color); border:none; background:none; cursor:pointer; font-weight:bold;">削除</button>
                 </div>`).join('');
 
@@ -775,6 +783,21 @@
         }
         async function delSite(i) { if(confirm('消去しますか？')) { db.sites.splice(i,1); saveDB(); if(USE_SUPABASE && sbUser) await syncSitesToSupabase(); renderAll(); } }
         async function delMedia(i) { if(confirm('消去しますか？')) { db.media.splice(i,1); saveDB(); if(USE_SUPABASE && sbUser) await syncMediaToSupabase(); renderAll(); } }
+        async function updateSite(i) {
+            const userEl = document.getElementById(`edit-site-user-${i}`);
+            const passEl = document.getElementById(`edit-site-pass-${i}`);
+            if(!db.sites[i]) return;
+            const newUser = (userEl?.value || '').trim();
+            const newPass = (passEl?.value || '').replace(/\s+/g, '');
+            if(!newUser || !newPass) return alert('ユーザー名とアプリパスワードを入力してください。');
+            db.sites[i].user = newUser;
+            db.sites[i].pass = newPass;
+            db.sites[i].connectedAt = new Date().toISOString();
+            saveDB();
+            if(USE_SUPABASE && sbUser) await syncSitesToSupabase();
+            renderAll();
+            alert('更新しました。');
+        }
         function handleSetup() { const u=document.getElementById('setup-user').value, a=document.getElementById('setup-app').value, k=document.getElementById('setup-key').value; if(u&&a&&k){db.user={name:u,appName:a,masterKey:k};saveDB();sessionStorage.setItem(KEY+'logged_in', 'true');location.reload();} }
         function updateProfile() { db.user.name=document.getElementById('set-user-name').value; db.user.appName=document.getElementById('set-app-name').value; saveDB(); document.getElementById('brand-logo').innerText=BRAND_NAME; }
         async function addMedia() { const n=document.getElementById('new-media-name').value, l=document.getElementById('new-media-letter').value; if(n){db.media.push({name:n,letter:l});saveDB(); if(USE_SUPABASE && sbUser) await syncMediaToSupabase(); renderAll(); document.getElementById('new-media-name').value=''; document.getElementById('new-media-letter').value='';} }
