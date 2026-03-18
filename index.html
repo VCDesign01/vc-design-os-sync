@@ -718,7 +718,7 @@
                     <div class="list-content" onclick="restore(${i})" style="cursor:pointer; flex: 1;">
                         <strong style="font-size:1.1em; color:var(--text-main);">${h.title}</strong><br>
                         <small style="color:var(--text-sub);">作成日: ${formatHistoryDate(h)}</small><br>
-                        <div class="platform-checks" style="margin-top:6px;">
+                        <div class="platform-checks" style="margin-top:6px;" onclick="event.stopPropagation()">
                             ${renderPlatformChecks(h, i)}
                         </div>
                     </div>
@@ -1198,7 +1198,7 @@
             const v = map[key] || {};
             const options = Array.isArray(db.platforms) ? db.platforms : [];
             return options.map(opt => `
-                <label class="info-chip" style="cursor:pointer;">
+                <label class="info-chip" style="cursor:pointer;" onclick="event.stopPropagation()">
                     <input type="checkbox" style="margin-right:6px;" ${v[opt.id] ? 'checked' : ''} onchange="togglePlatformCheck('${key}','${opt.id}', this.checked)">
                     ${opt.label}
                 </label>
@@ -1209,7 +1209,7 @@
             const map = getPlatformChecksMap();
             const v = map[key] || {};
             return `
-                <label class="info-chip" style="cursor:pointer;">
+                <label class="info-chip" style="cursor:pointer;" onclick="event.stopPropagation()">
                     <input type="checkbox" style="margin-right:6px;" ${v.wp_posted ? 'checked' : ''} onchange="togglePlatformCheck('${key}','wp_posted', this.checked)">
                     WP投稿
                 </label>
