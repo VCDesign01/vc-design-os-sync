@@ -266,6 +266,17 @@
                     <button class="btn-primary" style="background:var(--help-color);" onclick="addMedia()">追加</button>
                 </div>
             </div>
+            <div class="card">
+                <h3>任意プラットフォーム管理</h3>
+                <p style="margin:0 0 15px 0; font-size:0.9em; font-weight:bold; color:var(--text-sub); line-height:1.5;">
+                    履歴に表示するチェック項目を自由に追加・削除できます。
+                </p>
+                <div id="platform-list-display"></div>
+                <div class="input-group" style="margin-top:10px;">
+                    <input type="text" id="new-platform-label" placeholder="追加する名称（例: Instagram / LINE / Facebook）">
+                    <button class="btn-primary" style="background:var(--success-color);" onclick="addPlatform()">追加</button>
+                </div>
+            </div>
         </div>
 
         <div id="view-help" class="view">
@@ -320,7 +331,7 @@
     <script>
         const BRAND_NAME = 'VC DesignブログOS';
         const KEY = 'vcd_v13_';
-        let db = { user: null, sites: [], media: [], history: [] };
+        let db = { user: null, sites: [], media: [], history: [], platforms: [] };
         let autoSelectTerms = localStorage.getItem(KEY+'auto_select_terms') === '1';
         const USE_SUPABASE = true;
         const SUPABASE_URL = 'https://qjdqblfydxzpeulhghhi.supabase.co';
@@ -353,6 +364,8 @@
             db.sites = JSON.parse(localStorage.getItem(KEY+'sites')) || [];
             db.media = JSON.parse(localStorage.getItem(KEY+'media')) || [];
             db.history = JSON.parse(localStorage.getItem(KEY+'history')) || [];
+            db.platforms = JSON.parse(localStorage.getItem(KEY+'platforms')) || [];
+            ensurePlatforms();
         }
 
         function migrateData() {
@@ -392,6 +405,17 @@
                     }
                 }
             } catch(e) {}
+        }
+        function ensurePlatforms() {
+            if(!Array.isArray(db.platforms) || db.platforms.length === 0) {
+                db.platforms = [
+                    { id: 'note', label: 'note' },
+                    { id: 'coconala', label: 'ココナラ' },
+                    { id: 'x', label: 'X' },
+                    { id: 'threads', label: 'Threads' }
+                ];
+                saveDB();
+            }
         }
 
         function forceMigrate() {
@@ -535,6 +559,8 @@
             updateActiveSiteLabel();
             updateBackupInfo();
             updateMediaLimitInfo();
+            renderPlatformConfig();
+            updateHistoryStats();
             renderHistory();
         }
 
@@ -545,7 +571,9 @@
                     <div class="list-content" onclick="restore(${i})" style="cursor:pointer; flex: 1;">
                         <strong style="font-size:1.1em; color:var(--text-main);">${h.title}</strong><br>
                         <small style="color:var(--text-sub);">作成日: ${formatHistoryDate(h)}</small><br>
-                        <small style="color:var(--text-sub);">WP送信: ${h.link ? '済' : '未'}</small>
+                        <div class="info-row" style="margin-top:6px;">
+                            ${renderPlatformChecks(h, i)}
+                        </div>
                     </div>
                     <div style="display:flex; align-items:center;">
                         ${h.link ? `<span class="badge-sent">✅ WP済</span> <a href="${h.link}" target="_blank" style="text-decoration:none; font-size:0.85em; font-weight:bold; color:var(--main-color); margin-right:15px;">WPで確認</a>` : ''}
@@ -990,11 +1018,84 @@
             if(dashUnsent) dashUnsent.innerText = unsent;
             if(dashWp) dashWp.innerText = wpSent;
         }
+        function getHistoryKey(h, i) {
+            if(h && h.id) return `id:${h.id}`;
+            return `row:${i}:${(h.title||'').slice(0,50)}:${(h.date||'')}`;
+        }
+        function loadPlatformChecks() {
+            try { return JSON.parse(localStorage.getItem(KEY+'platform_checks') || '{}'); } catch(e) { return {}; }
+        }
+        function savePlatformChecks(map) {
+            localStorage.setItem(KEY+'platform_checks', JSON.stringify(map || {}));
+        }
+        function renderPlatformChecks(h, i) {
+            const key = getHistoryKey(h, i);
+            const map = loadPlatformChecks();
+            const v = map[key] || {};
+            const options = Array.isArray(db.platforms) ? db.platforms : [];
+            return options.map(opt => `
+                <label class="info-chip" style="cursor:pointer;">
+                    <input type="checkbox" style="margin-right:6px;" ${v[opt.id] ? 'checked' : ''} onchange="togglePlatformCheck('${key}','${opt.id}', this.checked)">
+                    ${opt.label}
+                </label>
+            `).join('');
+        }
+        function togglePlatformCheck(key, platformId, checked) {
+            const map = loadPlatformChecks();
+            if(!map[key]) map[key] = {};
+            map[key][platformId] = !!checked;
+            savePlatformChecks(map);
+        }
         function updateMediaLimitInfo() {
             const el = document.getElementById('media-count');
             if(!el) return;
             const count = Array.isArray(db.media) ? db.media.length : 0;
             el.innerText = count;
+        }
+        function slugifyLabel(v) {
+            return (v || '')
+                .toString()
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9\-]/g, '')
+                .replace(/\-+/g, '-')
+                .replace(/^\-+|\-+$/g, '');
+        }
+        function renderPlatformConfig() {
+            const wrap = document.getElementById('platform-list-display');
+            if(!wrap) return;
+            const items = Array.isArray(db.platforms) ? db.platforms : [];
+            if(items.length === 0) {
+                wrap.innerHTML = `<div class="info-chip">まだ登録がありません</div>`;
+                return;
+            }
+            wrap.innerHTML = items.map((p, i) => `
+                <div class="history-item" style="align-items:center;">
+                    <span><strong>${p.label}</strong><br><small style="opacity:0.6;">ID: ${p.id}</small></span>
+                    <button onclick="delPlatform(${i})" style="color:var(--contact-color); border:none; background:none; cursor:pointer; font-weight:bold;">削除</button>
+                </div>
+            `).join('');
+        }
+        function addPlatform() {
+            const input = document.getElementById('new-platform-label');
+            const label = (input?.value || '').trim();
+            if(!label) return;
+            const id = slugifyLabel(label);
+            if(!id) return alert('英数字で識別できる名称を入れてください。');
+            if(db.platforms.some(p => p.id === id)) return alert('同じIDの項目が既にあります。');
+            db.platforms.push({ id, label });
+            saveDB();
+            if(input) input.value = '';
+            renderPlatformConfig();
+            renderHistory();
+        }
+        function delPlatform(i) {
+            if(!confirm('削除しますか？')) return;
+            db.platforms.splice(i,1);
+            saveDB();
+            renderPlatformConfig();
+            renderHistory();
         }
         function exportFullBackup() { const d=JSON.stringify(db,null,2); const b=new Blob([d],{type:"application/json"}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`Backup.json`; a.click(); localStorage.setItem(KEY+'last_backup_at', String(Date.now())); updateBackupInfo(); }
         function importFullBackup(e) { const r=new FileReader(); r.onload=(ev)=>{ try{ db=JSON.parse(ev.target.result); saveDB(); location.reload(); }catch(err){alert('Invalid file');} }; r.readAsText(e.target.files[0]); }
