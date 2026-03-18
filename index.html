@@ -358,6 +358,7 @@
         const MEDIA_LIMIT = 10;
         const SITE_LIMIT = null; // 上限なしの場合は null
         let db = { user: null, sites: [], media: [], history: [], platforms: [] };
+        let platformChecksMap = {};
         let autoSelectTerms = localStorage.getItem(KEY+'auto_select_terms') === '1';
         const USE_SUPABASE = true;
         const SUPABASE_URL = 'https://qjdqblfydxzpeulhghhi.supabase.co';
@@ -392,6 +393,7 @@
             db.history = JSON.parse(localStorage.getItem(KEY+'history')) || [];
             db.platforms = JSON.parse(localStorage.getItem(KEY+'platforms')) || [];
             ensurePlatforms();
+            platformChecksMap = loadPlatformChecksLocal();
         }
 
         function migrateData() {
@@ -494,7 +496,9 @@
             const { data } = await sb.auth.getSession();
             sbUser = data.session?.user || null;
             if(sbUser) {
+                await loadSettingsFromSupabase();
                 await loadHistoryFromSupabase();
+                await loadPlatformChecksFromSupabase();
                 startAfterAuth();
             } else {
                 document.getElementById('form-supabase').style.display = 'block';
@@ -507,7 +511,9 @@
             const { data, error } = await sb.auth.signInWithPassword({ email, password });
             if(error) return alert(error.message);
             sbUser = data.user;
+            await loadSettingsFromSupabase();
             await loadHistoryFromSupabase();
+            await loadPlatformChecksFromSupabase();
             startAfterAuth();
         }
         async function handleSupabaseSignup() {
@@ -518,11 +524,125 @@
             if(error) return alert(error.message);
             if(data.session) {
                 sbUser = data.user;
+                await loadSettingsFromSupabase();
                 await loadHistoryFromSupabase();
+                await loadPlatformChecksFromSupabase();
                 startAfterAuth();
             } else {
                 alert('確認メールを送信しました。メール内のリンクを開いてからログインしてください。');
             }
+        }
+        async function loadSettingsFromSupabase() {
+            if(!sbUser) return;
+            const [sitesRes, mediaRes, platformsRes] = await Promise.all([
+                sb.from('sites').select('name,url,username,password,connected_at,sort_order').order('sort_order', { ascending: true }),
+                sb.from('media').select('name,letter,sort_order').order('sort_order', { ascending: true }),
+                sb.from('platforms').select('platform_id,label,sort_order').order('sort_order', { ascending: true })
+            ]);
+            if(sitesRes.error || mediaRes.error || platformsRes.error) {
+                const msg = sitesRes.error?.message || mediaRes.error?.message || platformsRes.error?.message || '設定の取得に失敗しました。';
+                alert(msg);
+                return;
+            }
+
+            const sitesData = sitesRes.data || [];
+            const mediaData = mediaRes.data || [];
+            const platformsData = platformsRes.data || [];
+
+            if(sitesData.length > 0) {
+                db.sites = sitesData.map(row => ({
+                    name: row.name || '',
+                    url: row.url || '',
+                    user: row.username || '',
+                    pass: row.password || '',
+                    connectedAt: row.connected_at || null
+                }));
+            } else if(db.sites.length > 0) {
+                await syncSitesToSupabase();
+            }
+
+            if(mediaData.length > 0) {
+                db.media = mediaData.map(row => ({
+                    name: row.name || '',
+                    letter: row.letter || ''
+                }));
+            } else if(db.media.length > 0) {
+                await syncMediaToSupabase();
+            }
+
+            if(platformsData.length > 0) {
+                db.platforms = platformsData.map(row => ({
+                    id: row.platform_id || slugifyLabel(row.label || ''),
+                    label: row.label || row.platform_id || ''
+                })).filter(p => p.id && p.label);
+            } else {
+                ensurePlatforms();
+                await syncPlatformsToSupabase();
+            }
+
+            saveDB();
+        }
+        async function syncSitesToSupabase() {
+            if(!sbUser) return;
+            const payload = (db.sites || []).map((s, i) => ({
+                user_id: sbUser.id,
+                name: s.name || '',
+                url: s.url || '',
+                username: s.user || '',
+                password: s.pass || '',
+                connected_at: s.connectedAt || null,
+                sort_order: i
+            }));
+            const { error: delErr } = await sb.from('sites').delete().eq('user_id', sbUser.id);
+            if(delErr) { alert(delErr.message); return; }
+            if(payload.length > 0) {
+                const { error } = await sb.from('sites').insert(payload);
+                if(error) alert(error.message);
+            }
+        }
+        async function syncMediaToSupabase() {
+            if(!sbUser) return;
+            const payload = (db.media || []).map((m, i) => ({
+                user_id: sbUser.id,
+                name: m.name || '',
+                letter: m.letter || '',
+                sort_order: i
+            }));
+            const { error: delErr } = await sb.from('media').delete().eq('user_id', sbUser.id);
+            if(delErr) { alert(delErr.message); return; }
+            if(payload.length > 0) {
+                const { error } = await sb.from('media').insert(payload);
+                if(error) alert(error.message);
+            }
+        }
+        async function syncPlatformsToSupabase() {
+            if(!sbUser) return;
+            const payload = (db.platforms || []).map((p, i) => ({
+                user_id: sbUser.id,
+                platform_id: p.id,
+                label: p.label,
+                sort_order: i
+            }));
+            const { error: delErr } = await sb.from('platforms').delete().eq('user_id', sbUser.id);
+            if(delErr) { alert(delErr.message); return; }
+            if(payload.length > 0) {
+                const { error } = await sb.from('platforms').insert(payload);
+                if(error) alert(error.message);
+            }
+        }
+        async function loadPlatformChecksFromSupabase() {
+            if(!sbUser) return;
+            const { data, error } = await sb.from('platform_checks').select('history_id,platform_id,checked');
+            if(error) { console.warn(error.message); return; }
+            const map = loadPlatformChecksLocal();
+            (data || []).forEach(row => {
+                const key = `id:${row.history_id}`;
+                if(!map[key]) map[key] = {};
+                map[key][row.platform_id] = row.checked !== false;
+            });
+            platformChecksMap = map;
+            savePlatformChecksLocal(map);
+            renderHistory();
         }
         function startAfterAuth() {
             if(!db.user) {
@@ -612,10 +732,11 @@
             updateHistoryStats();
         }
 
-        function updateMedia(i) {
+        async function updateMedia(i) {
             db.media[i].name = document.getElementById(`edit-media-name-${i}`).value;
             db.media[i].letter = document.getElementById(`edit-media-letter-${i}`).value;
             saveDB();
+            if(USE_SUPABASE && sbUser) await syncMediaToSupabase();
             alert('保存しました。');
             renderAll();
         }
@@ -647,13 +768,13 @@
             saveDB();
             renderHistory();
         }
-        function delSite(i) { if(confirm('消去しますか？')) { db.sites.splice(i,1); saveDB(); renderAll(); } }
-        function delMedia(i) { if(confirm('消去しますか？')) { db.media.splice(i,1); saveDB(); renderAll(); } }
+        async function delSite(i) { if(confirm('消去しますか？')) { db.sites.splice(i,1); saveDB(); if(USE_SUPABASE && sbUser) await syncSitesToSupabase(); renderAll(); } }
+        async function delMedia(i) { if(confirm('消去しますか？')) { db.media.splice(i,1); saveDB(); if(USE_SUPABASE && sbUser) await syncMediaToSupabase(); renderAll(); } }
         function handleSetup() { const u=document.getElementById('setup-user').value, a=document.getElementById('setup-app').value, k=document.getElementById('setup-key').value; if(u&&a&&k){db.user={name:u,appName:a,masterKey:k};saveDB();sessionStorage.setItem(KEY+'logged_in', 'true');location.reload();} }
         function updateProfile() { db.user.name=document.getElementById('set-user-name').value; db.user.appName=document.getElementById('set-app-name').value; saveDB(); document.getElementById('brand-logo').innerText=BRAND_NAME; }
-        function addMedia() { const n=document.getElementById('new-media-name').value, l=document.getElementById('new-media-letter').value; if(n){db.media.push({name:n,letter:l});saveDB();renderAll(); document.getElementById('new-media-name').value=''; document.getElementById('new-media-letter').value='';} }
+        async function addMedia() { const n=document.getElementById('new-media-name').value, l=document.getElementById('new-media-letter').value; if(n){db.media.push({name:n,letter:l});saveDB(); if(USE_SUPABASE && sbUser) await syncMediaToSupabase(); renderAll(); document.getElementById('new-media-name').value=''; document.getElementById('new-media-letter').value='';} }
         async function magicFetch() { let b=document.getElementById('magic-url').value.replace(/\/$/, ""); try { const res=await fetch(`${b}/wp-json/`); const d=await res.json(); document.getElementById('new-site-name').value=d.name; document.getElementById('magic-fields').style.display='flex'; } catch(e) { document.getElementById('magic-fields').style.display='flex'; } }
-        function addSite() { const n=document.getElementById('new-site-name').value, u=`${document.getElementById('magic-url').value.replace(/\/$/, "")}/wp-json/wp/v2`, us=document.getElementById('new-site-user').value.trim(), p=document.getElementById('new-site-pass').value.replace(/\s+/g, ''); if(n&&us&&p){db.sites.push({name:n,url:u,user:us,pass:p,connectedAt:new Date().toISOString()});saveDB();location.reload();} }
+        async function addSite() { const n=document.getElementById('new-site-name').value, u=`${document.getElementById('magic-url').value.replace(/\/$/, "")}/wp-json/wp/v2`, us=document.getElementById('new-site-user').value.trim(), p=document.getElementById('new-site-pass').value.replace(/\s+/g, ''); if(n&&us&&p){db.sites.push({name:n,url:u,user:us,pass:p,connectedAt:new Date().toISOString()});saveDB(); if(USE_SUPABASE && sbUser) await syncSitesToSupabase(); location.reload();} }
         async function refreshTerms() { updateActiveSiteLabel(); const s=db.sites[document.getElementById('site-select').value]; if(s) fetchData(s,'categories','cat-list'), fetchData(s,'tags','tag-list'); }
         async function fetchData(s,t,e) { const c=document.getElementById(e); c.innerText='Sync...'; try { const res=await fetch(`${s.url}/${t}?per_page=100`, { headers: { 'Authorization': getAuth(s.user, s.pass) } }); const data=await res.json(); c.innerHTML=''; data.forEach(item => { const el=document.createElement('div'); el.className='item-chip'; el.dataset.id=item.id; el.innerText=item.name; el.onclick=()=>el.classList.toggle('active'); c.appendChild(el); }); analyzeTextForTerms(); } catch(err) { c.innerText='Error'; } }
         async function saveToHistory(m, l=null) {
@@ -1057,15 +1178,23 @@
             if(h && h.id) return `id:${h.id}`;
             return `row:${i}:${(h.title||'').slice(0,50)}:${(h.date||'')}`;
         }
-        function loadPlatformChecks() {
+        function loadPlatformChecksLocal() {
             try { return JSON.parse(localStorage.getItem(KEY+'platform_checks') || '{}'); } catch(e) { return {}; }
         }
-        function savePlatformChecks(map) {
+        function savePlatformChecksLocal(map) {
             localStorage.setItem(KEY+'platform_checks', JSON.stringify(map || {}));
+        }
+        function getPlatformChecksMap() {
+            return platformChecksMap || {};
+        }
+        function getHistoryIdFromKey(key) {
+            if(typeof key !== 'string') return null;
+            if(key.startsWith('id:')) return key.slice(3);
+            return null;
         }
         function renderPlatformChecks(h, i) {
             const key = getHistoryKey(h, i);
-            const map = loadPlatformChecks();
+            const map = getPlatformChecksMap();
             const v = map[key] || {};
             const options = Array.isArray(db.platforms) ? db.platforms : [];
             return options.map(opt => `
@@ -1077,7 +1206,7 @@
         }
         function renderWpPostedCheck(h, i) {
             const key = getHistoryKey(h, i);
-            const map = loadPlatformChecks();
+            const map = getPlatformChecksMap();
             const v = map[key] || {};
             return `
                 <label class="info-chip" style="cursor:pointer;">
@@ -1086,11 +1215,34 @@
                 </label>
             `;
         }
-        function togglePlatformCheck(key, platformId, checked) {
-            const map = loadPlatformChecks();
+        async function togglePlatformCheck(key, platformId, checked) {
+            const map = getPlatformChecksMap();
             if(!map[key]) map[key] = {};
             map[key][platformId] = !!checked;
-            savePlatformChecks(map);
+            platformChecksMap = map;
+            savePlatformChecksLocal(map);
+            await syncPlatformCheckToSupabase(key, platformId, checked);
+        }
+        async function syncPlatformCheckToSupabase(key, platformId, checked) {
+            if(!USE_SUPABASE || !sbUser) return;
+            const historyId = getHistoryIdFromKey(key);
+            if(!historyId) return;
+            if(checked) {
+                const { error } = await sb.from('platform_checks').upsert({
+                    user_id: sbUser.id,
+                    history_id: historyId,
+                    platform_id: platformId,
+                    checked: true
+                }, { onConflict: 'user_id,history_id,platform_id' });
+                if(error) alert(error.message);
+            } else {
+                const { error } = await sb.from('platform_checks')
+                    .delete()
+                    .eq('user_id', sbUser.id)
+                    .eq('history_id', historyId)
+                    .eq('platform_id', platformId);
+                if(error) alert(error.message);
+            }
         }
         function updateMediaLimitInfo() {
             const el = document.getElementById('media-count');
@@ -1146,6 +1298,7 @@
             if(db.platforms.some(p => p.id === id)) return alert('同じIDの項目が既にあります。');
             db.platforms.push({ id, label });
             saveDB();
+            if(USE_SUPABASE && sbUser) syncPlatformsToSupabase();
             if(input) input.value = '';
             renderPlatformConfig();
             renderHistory();
@@ -1154,6 +1307,7 @@
             if(!confirm('削除しますか？')) return;
             db.platforms.splice(i,1);
             saveDB();
+            if(USE_SUPABASE && sbUser) syncPlatformsToSupabase();
             renderPlatformConfig();
             renderHistory();
         }
