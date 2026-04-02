@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -77,6 +77,16 @@
     </style>
 </head>
 <body>
+
+    <div id="global-error-overlay" style="display:none; position:fixed; inset:0; background:var(--bg-color); z-index:99999; flex-direction:column; align-items:center; justify-content:center; padding:30px; text-align:center;">
+        <svg class="icon" style="width:5em; height:5em; color:var(--contact-color); margin-bottom:20px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        <h1 style="color:var(--text-main); font-weight:900; margin-bottom:10px;">サーバーに接続できません</h1>
+        <p style="color:var(--text-sub); max-width:400px; line-height:1.6; font-weight:bold;">
+            通信環境をご確認いただくか、しばらく時間をおいてから再度お試しください。<br>
+            （一時停止中またはメンテナンスの可能性があります）
+        </p>
+        <button class="btn-primary" style="margin-top:20px; background:var(--text-main);" onclick="location.reload()">再読み込み</button>
+    </div>
 
     <svg style="display: none;">
         <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></symbol>
@@ -497,44 +507,72 @@
                 alert('パスワードが違います。');
             }
         }
+        function handleNetworkError(error) {
+            if (error && error.message && error.message.includes('Failed to fetch')) {
+                document.getElementById('global-error-overlay').style.display = 'flex';
+                return true;
+            }
+            return false;
+        }
+
         async function initSupabaseAuth() {
-            const { data } = await sb.auth.getSession();
-            sbUser = data.session?.user || null;
-            if(sbUser) {
-                await loadSettingsFromSupabase();
-                await loadHistoryFromSupabase();
-                await loadPlatformChecksFromSupabase();
-                startAfterAuth();
-            } else {
-                document.getElementById('form-supabase').style.display = 'block';
+            try {
+                const { data, error } = await sb.auth.getSession();
+                if (error && handleNetworkError(error)) return;
+                
+                sbUser = data?.session?.user || null;
+                if(sbUser) {
+                    await loadSettingsFromSupabase();
+                    await loadHistoryFromSupabase();
+                    await loadPlatformChecksFromSupabase();
+                    startAfterAuth();
+                } else {
+                    document.getElementById('form-supabase').style.display = 'block';
+                }
+            } catch (e) {
+                if(handleNetworkError(e)) return;
             }
         }
         async function handleSupabaseLogin() {
             const email = document.getElementById('sb-email').value.trim();
             const password = document.getElementById('sb-pass').value;
             if(!email || !password) return alert('メールとパスワードを入力してください。');
-            const { data, error } = await sb.auth.signInWithPassword({ email, password });
-            if(error) return alert(error.message);
-            sbUser = data.user;
-            await loadSettingsFromSupabase();
-            await loadHistoryFromSupabase();
-            await loadPlatformChecksFromSupabase();
-            startAfterAuth();
-        }
-        async function handleSupabaseSignup() {
-            const email = document.getElementById('sb-email').value.trim();
-            const password = document.getElementById('sb-pass').value;
-            if(!email || !password) return alert('メールとパスワードを入力してください。');
-            const { data, error } = await sb.auth.signUp({ email, password });
-            if(error) return alert(error.message);
-            if(data.session) {
+            try {
+                const { data, error } = await sb.auth.signInWithPassword({ email, password });
+                if(error) {
+                    if (handleNetworkError(error)) return;
+                    return alert(error.message);
+                }
                 sbUser = data.user;
                 await loadSettingsFromSupabase();
                 await loadHistoryFromSupabase();
                 await loadPlatformChecksFromSupabase();
                 startAfterAuth();
-            } else {
-                alert('確認メールを送信しました。メール内のリンクを開いてからログインしてください。');
+            } catch (e) {
+                if(handleNetworkError(e)) return;
+            }
+        }
+        async function handleSupabaseSignup() {
+            const email = document.getElementById('sb-email').value.trim();
+            const password = document.getElementById('sb-pass').value;
+            if(!email || !password) return alert('メールとパスワードを入力してください。');
+            try {
+                const { data, error } = await sb.auth.signUp({ email, password });
+                if(error) {
+                    if (handleNetworkError(error)) return;
+                    return alert(error.message);
+                }
+                if(data.session) {
+                    sbUser = data.user;
+                    await loadSettingsFromSupabase();
+                    await loadHistoryFromSupabase();
+                    await loadPlatformChecksFromSupabase();
+                    startAfterAuth();
+                } else {
+                    alert('確認メールを送信しました。メール内のリンクを開いてからログインしてください。');
+                }
+            } catch (e) {
+                if(handleNetworkError(e)) return;
             }
         }
         async function loadSettingsFromSupabase() {
@@ -546,6 +584,7 @@
             ]);
             if(sitesRes.error || mediaRes.error || platformsRes.error) {
                 const msg = sitesRes.error?.message || mediaRes.error?.message || platformsRes.error?.message || '設定の取得に失敗しました。';
+                if(handleNetworkError({message: msg})) return;
                 alert(msg);
                 return;
             }
