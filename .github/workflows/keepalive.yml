@@ -1,14 +1,18 @@
-name: Supabase Keep Alive
+name: Supabase Keep Alive (Database Read)
+
 on:
   schedule:
-    - cron: '0 0 */3 * *'
-  workflow_dispatch:
+    # 毎日、日本時間の朝9時（UTC 0時）に実行して一時停止を防ぎます
+    - cron: "0 0 * * *"
+  workflow_dispatch: # 手動でテスト実行するための設定
 
 jobs:
-  ping:
+  keep-alive:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase API
+      - name: Keep Supabase Active by reading a table
         run: |
-          curl -s "https://qjdqblfydxzpeulhghhi.supabase.co/rest/v1/" \
-          -H "apikey: sb_publishable_O5XfEVAyp_J8mspiiS5w2g_26LlhzqH"
+          # SupabaseのREST APIを使って、実際にデータベースのデータを1件だけ取得するクエリを実行します
+          curl -s -X GET "https://qjdqblfydxzpeulhghhi.supabase.co/rest/v1/platforms?select=platform_id&limit=1" \
+          -H "apikey: sb_publishable_O5XfEVAyp_J8mspiiS5w2g_26LlhzqH" \
+          -H "Authorization: Bearer sb_publishable_O5XfEVAyp_J8mspiiS5w2g_26LlhzqH"
